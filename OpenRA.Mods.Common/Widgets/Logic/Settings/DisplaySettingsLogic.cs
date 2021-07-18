@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Primitives;
 using OpenRA.Support;
 using OpenRA.Widgets;
@@ -79,7 +80,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 			var displaySelectionDropDown = panel.Get<DropDownButtonWidget>("DISPLAY_SELECTION_DROPDOWN");
 			displaySelectionDropDown.OnMouseDown = _ => ShowDisplaySelectionDropdown(displaySelectionDropDown, ds);
-			var displaySelectionLabel = new CachedTransform<int, string>(i => "Display {0}".F(i + 1));
+			var displaySelectionLabel = new CachedTransform<int, string>(i => $"Display {i + 1}");
 			displaySelectionDropDown.GetText = () => displaySelectionLabel.Update(ds.VideoDisplay);
 			displaySelectionDropDown.IsDisabled = () => Game.Renderer.DisplayCount < 2;
 
@@ -105,6 +106,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			battlefieldCameraDropDown.OnMouseDown = _ => ShowBattlefieldCameraDropdown(battlefieldCameraDropDown, viewportSizes, ds);
 			battlefieldCameraDropDown.GetText = () => battlefieldCameraLabel.Update(ds.ViewportDistance);
 
+			BindTextNotificationPoolFilterSettings(panel, gs);
+
 			// Update vsync immediately
 			var vsyncCheckbox = panel.Get<CheckboxWidget>("VSYNC_CHECKBOX");
 			var vsyncOnClick = vsyncCheckbox.OnClick;
@@ -115,7 +118,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			};
 
 			var uiScaleDropdown = panel.Get<DropDownButtonWidget>("UI_SCALE_DROPDOWN");
-			var uiScaleLabel = new CachedTransform<float, string>(s => "{0}%".F((int)(100 * s)));
+			var uiScaleLabel = new CachedTransform<float, string>(s => $"{(int)(100 * s)}%");
 			uiScaleDropdown.OnMouseDown = _ => ShowUIScaleDropdown(uiScaleDropdown, ds);
 			uiScaleDropdown.GetText = () => uiScaleLabel.Update(ds.UIScale);
 
@@ -142,7 +145,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 			var frameLimitCheckbox = panel.Get<CheckboxWidget>("FRAME_LIMIT_CHECKBOX");
 			var frameLimitOrigLabel = frameLimitCheckbox.Text;
-			var frameLimitLabel = new CachedTransform<int, string>(fps => frameLimitOrigLabel + " ({0} FPS)".F(fps));
+			var frameLimitLabel = new CachedTransform<int, string>(fps => frameLimitOrigLabel + $" ({fps} FPS)");
 			frameLimitCheckbox.GetText = () => frameLimitLabel.Update(ds.MaxFramerate);
 
 			// Player profile
@@ -170,8 +173,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				}
 			};
 
-			nameTextfield.OnEnterKey = () => { nameTextfield.YieldKeyboardFocus(); return true; };
-			nameTextfield.OnEscKey = () =>
+			nameTextfield.OnEnterKey = _ => { nameTextfield.YieldKeyboardFocus(); return true; };
+			nameTextfield.OnEscKey = _ =>
 			{
 				nameTextfield.Text = Settings.SanitizedPlayerName(ps.Name);
 				escPressed = true;
@@ -179,12 +182,16 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				return true;
 			};
 
-			var colorPreview = panel.Get<ColorPreviewManagerWidget>("COLOR_MANAGER");
-			colorPreview.Color = ps.Color;
+			var colorManager = modData.DefaultRules.Actors[SystemActors.World].TraitInfo<ColorPickerManagerInfo>();
+			colorManager.Color = ps.Color;
 
 			var colorDropdown = panel.Get<DropDownButtonWidget>("PLAYERCOLOR");
 			colorDropdown.IsDisabled = () => worldRenderer.World.Type != WorldType.Shellmap;
-			colorDropdown.OnMouseDown = _ => ColorPickerLogic.ShowColorDropDown(colorDropdown, colorPreview, worldRenderer.World);
+			colorDropdown.OnMouseDown = _ => ColorPickerLogic.ShowColorDropDown(colorDropdown, colorManager, worldRenderer, () =>
+			{
+				Game.Settings.Player.Color = colorManager.Color;
+				Game.Settings.Save();
+			});
 			colorDropdown.Get<ColorBlockWidget>("COLORBLOCK").GetColor = () => ps.Color;
 
 			return () =>
@@ -206,8 +213,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		{
 			var ds = Game.Settings.Graphics;
 			var ps = Game.Settings.Player;
+			var gs = Game.Settings.Game;
 			var dds = new GraphicSettings();
 			var dps = new PlayerSettings();
+			var dgs = new GameSettings();
 			return () =>
 			{
 				ds.CapFramerate = dds.CapFramerate;
@@ -230,6 +239,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 				ps.Color = dps.Color;
 				ps.Name = dps.Name;
+
+				gs.TextNotificationPoolFilters = dgs.TextNotificationPoolFilters;
 			};
 		}
 
@@ -253,6 +264,22 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			};
 
 			dropdown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 500, options.Keys, setupItem);
+		}
+
+		public static void BindTextNotificationPoolFilterSettings(Widget panel, GameSettings gs)
+		{
+			Action<TextNotificationPoolFilters> toggleFilterFlag = f =>
+			{
+				gs.TextNotificationPoolFilters ^= f;
+				Game.Settings.Save();
+			};
+
+			var feedbackCheckbox = panel.GetOrNull<CheckboxWidget>("UI_FEEDBACK_CHECKBOX");
+			if (feedbackCheckbox != null)
+			{
+				feedbackCheckbox.IsChecked = () => gs.TextNotificationPoolFilters.HasFlag(TextNotificationPoolFilters.Feedback);
+				feedbackCheckbox.OnClick = () => toggleFilterFlag(TextNotificationPoolFilters.Feedback);
+			}
 		}
 
 		static void ShowStatusBarsDropdown(DropDownButtonWidget dropdown, GameSettings s)
@@ -285,7 +312,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					() => s.VideoDisplay == o,
 					() => s.VideoDisplay = o);
 
-				var label = "Display {0}".F(o + 1);
+				var label = $"Display {o + 1}";
 				item.Get<LabelWidget>("LABEL").GetText = () => label;
 				return item;
 			};
@@ -421,7 +448,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 						});
 					});
 
-				var label = "{0}%".F((int)(100 * o));
+				var label = $"{(int)(100 * o)}%";
 				item.Get<LabelWidget>("LABEL").GetText = () => label;
 				return item;
 			};

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -65,12 +65,12 @@ namespace OpenRA.Mods.Common.Lint
 							if (isPlayerPalette)
 							{
 								if (!playerPalettes.Contains(reference))
-									emitError("Undefined player palette reference {0} detected at {1} for {2}".F(reference, traitInfo, actorInfo.Key));
+									emitError($"Undefined player palette reference {reference} detected at {traitInfo} for {actorInfo.Key}");
 							}
 							else
 							{
 								if (!palettes.Contains(reference))
-									emitError("Undefined palette reference {0} detected at {1} for {2}".F(reference, traitInfo, actorInfo.Key));
+									emitError($"Undefined palette reference {reference} detected at {traitInfo} for {actorInfo.Key}");
 							}
 						}
 					}
@@ -109,12 +109,12 @@ namespace OpenRA.Mods.Common.Lint
 						if (isPlayerPalette)
 						{
 							if (!playerPalettes.Contains(reference))
-								emitError("Undefined player palette reference {0} detected at weapon {1}.".F(reference, weaponInfo.Key));
+								emitError($"Undefined player palette reference {reference} detected at weapon {weaponInfo.Key}.");
 						}
 						else
 						{
 							if (!palettes.Contains(reference))
-								emitError("Undefined palette reference {0} detected at weapon {1}.".F(reference, weaponInfo.Key));
+								emitError($"Undefined palette reference {reference} detected at weapon {weaponInfo.Key}.");
 						}
 					}
 				}

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -83,7 +83,7 @@ namespace OpenRA
 		public LuaValue Add(LuaRuntime runtime, LuaValue left, LuaValue right)
 		{
 			if (!left.TryGetClrValue(out WPos a) || !right.TryGetClrValue(out WVec b))
-				throw new LuaException("Attempted to call WPos.Add(WPos, WVec) with invalid arguments ({0}, {1})".F(left.WrappedClrType().Name, right.WrappedClrType().Name));
+				throw new LuaException($"Attempted to call WPos.Add(WPos, WVec) with invalid arguments ({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
 
 			return new LuaCustomClrObject(a + b);
 		}
@@ -92,7 +92,7 @@ namespace OpenRA
 		{
 			var rightType = right.WrappedClrType();
 			if (!left.TryGetClrValue(out WPos a))
-				throw new LuaException("Attempted to call WPos.Subtract(WPos, (WPos|WVec)) with invalid arguments ({0}, {1})".F(left.WrappedClrType().Name, rightType.Name));
+				throw new LuaException($"Attempted to call WPos.Subtract(WPos, (WPos|WVec)) with invalid arguments ({left.WrappedClrType().Name}, {rightType.Name})");
 
 			if (rightType == typeof(WPos))
 			{
@@ -105,7 +105,7 @@ namespace OpenRA
 				return new LuaCustomClrObject(a - b);
 			}
 
-			throw new LuaException("Attempted to call WPos.Subtract(WPos, (WPos|WVec)) with invalid arguments ({0}, {1})".F(left.WrappedClrType().Name, rightType.Name));
+			throw new LuaException($"Attempted to call WPos.Subtract(WPos, (WPos|WVec)) with invalid arguments ({left.WrappedClrType().Name}, {rightType.Name})");
 		}
 
 		public LuaValue Equals(LuaRuntime runtime, LuaValue left, LuaValue right)
@@ -125,7 +125,7 @@ namespace OpenRA
 					case "X": return X;
 					case "Y": return Y;
 					case "Z": return Z;
-					default: throw new LuaException("WPos does not define a member '{0}'".F(key));
+					default: throw new LuaException($"WPos does not define a member '{key}'");
 				}
 			}
 

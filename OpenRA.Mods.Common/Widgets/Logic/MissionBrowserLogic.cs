@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -372,10 +372,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 			var orders = new List<Order>();
 			if (difficulty != null)
-				orders.Add(Order.Command("option difficulty {0}".F(difficulty)));
+				orders.Add(Order.Command($"option difficulty {difficulty}"));
 
-			orders.Add(Order.Command("option gamespeed {0}".F(gameSpeed)));
-			orders.Add(Order.Command("state {0}".F(Session.ClientState.Ready)));
+			orders.Add(Order.Command($"option gamespeed {gameSpeed}"));
+			orders.Add(Order.Command($"state {Session.ClientState.Ready}"));
 
 			var missionData = selectedMap.WorldActorInfo.TraitInfoOrDefault<MissionDataInfo>();
 			if (missionData != null && missionData.StartVideo != null && modData.DefaultFileSystem.Exists(missionData.StartVideo))

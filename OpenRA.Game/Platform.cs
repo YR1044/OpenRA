@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -64,13 +64,13 @@ namespace OpenRA
 			{
 				var mono = Type.GetType("Mono.Runtime");
 				if (mono == null)
-					return ".NET CLR {0}".F(Environment.Version);
+					return $".NET CLR {Environment.Version}";
 
 				var version = mono.GetMethod("GetDisplayName", BindingFlags.NonPublic | BindingFlags.Static);
 				if (version == null)
-					return "Mono (unknown version) CLR {0}".F(Environment.Version);
+					return $"Mono (unknown version) CLR {Environment.Version}";
 
-				return "Mono {0} CLR {1}".F(version.Invoke(null, null), Environment.Version);
+				return $"Mono {version.Invoke(null, null)} CLR {Environment.Version}";
 			}
 		}
 

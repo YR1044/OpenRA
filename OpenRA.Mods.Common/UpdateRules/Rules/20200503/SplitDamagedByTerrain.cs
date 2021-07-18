@@ -1,6 +1,6 @@
 ﻿#region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -24,9 +24,9 @@ namespace OpenRA.Mods.Common.UpdateRules.Rules
 			foreach (var damaged in actorNode.ChildrenMatching("DamagedByTerrain", includeRemovals: false))
 			{
 				if (damaged.RemoveNodes("DamageThreshold") > 0)
-					yield return "'DamageThreshold' was removed from {0} ({1}) without replacement.\n".F(actorNode.Key, actorNode.Location.Filename);
+					yield return $"'DamageThreshold' was removed from {actorNode.Key} ({actorNode.Location.Filename}) without replacement.\n";
 				if (damaged.RemoveNodes("StartOnThreshold") > 0)
-					yield return "'StartOnThreshold' was removed from {0} ({1}) without replacement.\n".F(actorNode.Key, actorNode.Location.Filename);
+					yield return $"'StartOnThreshold' was removed from {actorNode.Key} ({actorNode.Location.Filename}) without replacement.\n";
 			}
 
 			yield break;

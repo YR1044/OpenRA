@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -56,8 +56,7 @@ namespace OpenRA.Mods.Common.Lint
 
 							if (string.IsNullOrEmpty(type) || !rules.Notifications.TryGetValue(type.ToLowerInvariant(), out var soundInfo) ||
 								!soundInfo.Notifications.ContainsKey(notification))
-								emitError("Undefined notification reference {0}.{1} detected at {2} for {3}".F(
-									type ?? "(null)", notification, traitInfo.GetType().Name, actorInfo.Key));
+								emitError($"Undefined notification reference {type ?? "(null)"}.{notification} detected at {traitInfo.GetType().Name} for {actorInfo.Key}");
 						}
 					}
 				}

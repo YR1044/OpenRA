@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -107,7 +107,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				checkbox.IsChecked = () => optionValue.Update(orderManager.LobbyInfo.GlobalSettings).IsEnabled;
 				checkbox.IsDisabled = () => configurationDisabled() || optionValue.Update(orderManager.LobbyInfo.GlobalSettings).IsLocked;
 				checkbox.OnClick = () => orderManager.IssueOrder(Order.Command(
-					"option {0} {1}".F(option.Id, !optionValue.Update(orderManager.LobbyInfo.GlobalSettings).IsEnabled)));
+					$"option {option.Id} {!optionValue.Update(orderManager.LobbyInfo.GlobalSettings).IsEnabled}"));
 			}
 
 			foreach (var option in allOptions.Where(o => !(o is LobbyBooleanOption)))
@@ -148,7 +148,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					Func<KeyValuePair<string, string>, ScrollItemWidget, ScrollItemWidget> setupItem = (c, template) =>
 					{
 						Func<bool> isSelected = () => optionValue.Update(orderManager.LobbyInfo.GlobalSettings).Value == c.Key;
-						Action onClick = () => orderManager.IssueOrder(Order.Command("option {0} {1}".F(option.Id, c.Key)));
+						Action onClick = () => orderManager.IssueOrder(Order.Command($"option {option.Id} {c.Key}"));
 
 						var item = ScrollItemWidget.Setup(template, isSelected, onClick);
 						item.Get<LabelWidget>("LABEL").GetText = () => c.Value;

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -65,7 +65,7 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 						// SpriteFrameType refers to the channel byte order, which is reversed from the little-endian bit order
 						case ImageFormat.Rgba32: Type = SpriteFrameType.Bgra32; break;
 						case ImageFormat.Rgb24: Type = SpriteFrameType.Bgr24; break;
-						default: throw new InvalidDataException("Unhandled ImageFormat {0}".F(dds.Format));
+						default: throw new InvalidDataException($"Unhandled ImageFormat {dds.Format}");
 					}
 				}
 			}

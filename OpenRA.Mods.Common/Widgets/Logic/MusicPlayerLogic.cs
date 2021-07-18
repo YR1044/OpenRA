@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -92,7 +92,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				var totalMinutes = currentSong.Length / 60;
 				var totalSeconds = currentSong.Length % 60;
 
-				return "{0:D2}:{1:D2} / {2:D2}:{3:D2}".F(minutes, seconds, totalMinutes, totalSeconds);
+				return $"{minutes:D2}:{seconds:D2} / {totalMinutes:D2}:{totalSeconds:D2}";
 			};
 
 			var musicTitle = panel.GetOrNull<LabelWidget>("TITLE_LABEL");
@@ -157,7 +157,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 		static string SongLengthLabel(MusicInfo song)
 		{
-			return "{0:D1}:{1:D2}".F(song.Length / 60, song.Length % 60);
+			return $"{song.Length / 60:D1}:{song.Length % 60:D2}";
 		}
 	}
 }

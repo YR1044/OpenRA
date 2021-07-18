@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -212,19 +212,22 @@ namespace OpenRA.Mods.Common
 		public static string FriendlyTypeName(Type t)
 		{
 			if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(HashSet<>))
-				return "Set of {0}".F(t.GetGenericArguments().Select(FriendlyTypeName).ToArray());
+				return $"Set of {t.GetGenericArguments().Select(FriendlyTypeName).ToArray()}";
 
 			if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Dictionary<,>))
-				return "Mapping of {0} to {1}".F(t.GetGenericArguments().Select(FriendlyTypeName).ToArray());
+			{
+				var args = t.GetGenericArguments().Select(FriendlyTypeName).ToArray();
+				return $"Dictionary with Key: {args[0]}, Value {args[1]}";
+			}
 
 			if (t.IsSubclassOf(typeof(Array)))
-				return "Collection of {0}".F(FriendlyTypeName(t.GetElementType()));
+				return $"Collection of {FriendlyTypeName(t.GetElementType())}";
 
 			if (t.IsGenericType && t.GetGenericTypeDefinition().GetInterfaces().Any(e => e.IsGenericType && e.GetGenericTypeDefinition() == typeof(IEnumerable<>)))
-				return "Collection of {0}".F(FriendlyTypeName(t.GetGenericArguments().First()));
+				return $"Collection of {FriendlyTypeName(t.GetGenericArguments().First())}";
 
 			if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>))
-				return "{0} (optional)".F(t.GetGenericArguments().Select(FriendlyTypeName).First());
+				return $"{t.GetGenericArguments().Select(FriendlyTypeName).First()} (optional)";
 
 			if (t == typeof(int) || t == typeof(uint))
 				return "Integer";

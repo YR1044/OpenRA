@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -52,7 +52,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		static bool IncompatibleReplayDialog(string type, string name, Action onCancel)
 		{
 			var error = "It was recorded with an " + type;
-			error += string.IsNullOrEmpty(name) ? "." : ":\n{0}".F(name);
+			error += string.IsNullOrEmpty(name) ? "." : $":\n{name}";
 
 			ConfirmationDialogs.ButtonPrompt("Incompatible Replay", error, onCancel: onCancel);
 

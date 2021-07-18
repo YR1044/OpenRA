@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,7 +17,7 @@ using OpenRA.FileFormats;
 
 namespace OpenRA.Network
 {
-	sealed class ReplayRecorder
+	public sealed class ReplayRecorder
 	{
 		// Arbitrary value.
 		const int CreateReplayFileMaxRetryCount = 128;
@@ -56,7 +56,7 @@ namespace OpenRA.Network
 			var id = -1;
 			while (file == null)
 			{
-				var fullFilename = Path.Combine(dir, id < 0 ? "{0}.orarep".F(filename) : "{0}-{1}.orarep".F(filename, id));
+				var fullFilename = Path.Combine(dir, id < 0 ? $"{filename}.orarep" : $"{filename}-{id}.orarep");
 				id++;
 				try
 				{
@@ -65,8 +65,7 @@ namespace OpenRA.Network
 				catch (IOException ex)
 				{
 					if (id > CreateReplayFileMaxRetryCount)
-						throw new ArgumentException(
-							"Error creating replay file \"{0}.orarep\"".F(filename), ex);
+						throw new ArgumentException($"Error creating replay file \"{filename}.orarep\"", ex);
 				}
 			}
 

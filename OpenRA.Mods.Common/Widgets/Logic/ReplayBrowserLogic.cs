@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -102,7 +102,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			});
 
 			var replayDuration = new CachedTransform<ReplayMetadata, string>(r =>
-				"Duration: {0}".F(WidgetUtils.FormatTimeSeconds((int)selectedReplay.GameInfo.Duration.TotalSeconds)));
+				$"Duration: {WidgetUtils.FormatTimeSeconds((int)selectedReplay.GameInfo.Duration.TotalSeconds)}");
 			panel.Get<LabelWidget>("DURATION").GetText = () => replayDuration.Update(selectedReplay);
 
 			SetupFilters();
@@ -424,7 +424,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			{
 				ConfirmationDialogs.ButtonPrompt(
 					title: "Delete selected replay?",
-					text: "Delete replay '{0}'?".F(Path.GetFileNameWithoutExtension(r.FilePath)),
+					text: $"Delete replay '{Path.GetFileNameWithoutExtension(r.FilePath)}'?",
 					onConfirm: () =>
 					{
 						DeleteReplay(r);
@@ -461,7 +461,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 				ConfirmationDialogs.ButtonPrompt(
 					title: "Delete all selected replays?",
-					text: "Delete {0} replays?".F(list.Count),
+					text: $"Delete {list.Count} replays?",
 					onConfirm: () =>
 					{
 						list.ForEach(DeleteReplay);
@@ -499,7 +499,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			}
 			catch (Exception ex)
 			{
-				Game.Debug("Failed to delete replay file '{0}'. See the logs for details.", replay.FilePath);
+				TextNotificationsManager.Debug("Failed to delete replay file '{0}'. See the logs for details.", replay.FilePath);
 				Log.Write("debug", ex.ToString());
 				return;
 			}
@@ -635,7 +635,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				var noTeams = players.Count() == 1;
 				foreach (var p in players)
 				{
-					var label = noTeams ? "Players" : p.Key == 0 ? "No Team" : "Team {0}".F(p.Key);
+					var label = noTeams ? "Players" : p.Key == 0 ? "No Team" : $"Team {p.Key}";
 					teams.Add(label, p);
 				}
 

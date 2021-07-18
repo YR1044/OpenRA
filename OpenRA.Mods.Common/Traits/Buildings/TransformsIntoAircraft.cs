@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -33,6 +33,14 @@ namespace OpenRA.Mods.Common.Traits
 
 		[Desc("Require the force-move modifier to display the move cursor.")]
 		public readonly bool RequiresForceMove = false;
+
+		[CursorReference]
+		[Desc("Cursor to display when a move order can be issued at target location.")]
+		public readonly string Cursor = "move";
+
+		[CursorReference]
+		[Desc("Cursor to display when a move order cannot be issued at target location.")]
+		public readonly string BlockedCursor = "move-blocked";
 
 		[CursorReference]
 		[Desc("Cursor to display when able to land at target building.")]
@@ -199,14 +207,13 @@ namespace OpenRA.Mods.Common.Traits
 
 				var location = self.World.Map.CellContaining(target.CenterPosition);
 				var explored = self.Owner.Shroud.IsExplored(location);
-				cursor = self.World.Map.Contains(location) ?
-					self.World.Map.GetTerrainInfo(location).CustomCursor ?? "move" : "move-blocked";
+				cursor = self.World.Map.Contains(location) ? aircraft.Info.Cursor : aircraft.Info.BlockedCursor;
 
 				IsQueued = modifiers.HasModifier(TargetModifiers.ForceQueue);
 
 				if (!(self.CurrentActivity is Transform || aircraft.transforms.Any(t => !t.IsTraitDisabled && !t.IsTraitPaused))
 					|| (!explored && !aircraft.Info.MoveIntoShroud))
-					cursor = "move-blocked";
+					cursor = aircraft.Info.BlockedCursor;
 
 				return true;
 			}

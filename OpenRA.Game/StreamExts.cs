@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -151,7 +151,7 @@ namespace OpenRA
 		{
 			var length = s.ReadInt32();
 			if (length > maxLength)
-				throw new InvalidOperationException("The length of the string ({0}) is longer than the maximum allowed ({1}).".F(length, maxLength));
+				throw new InvalidOperationException($"The length of the string ({length}) is longer than the maximum allowed ({maxLength}).");
 
 			return encoding.GetString(s.ReadBytes(length));
 		}

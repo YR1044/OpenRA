@@ -1,6 +1,6 @@
 ﻿#region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -37,7 +37,7 @@ namespace OpenRA.Mods.Common.UpdateRules.Rules
 		{
 			if (actorNode.ChildrenMatching("ResourceLayer").Any() && !actorNode.ChildrenMatching("ResourceRenderer").Any())
 			{
-				locations.Add("{0} ({1})".F(actorNode.Key, actorNode.Location.Filename));
+				locations.Add($"{actorNode.Key} ({actorNode.Location.Filename})");
 				var resourceRenderer = new MiniYamlNode("ResourceRenderer", "");
 				resourceRenderer.AddNode("RenderTypes", "");
 				actorNode.AddNode(resourceRenderer);
@@ -47,7 +47,7 @@ namespace OpenRA.Mods.Common.UpdateRules.Rules
 			{
 				actorNode.RenameChildrenMatching("D2kResourceLayer", "ResourceLayer");
 
-				locations.Add("{0} ({1})".F(actorNode.Key, actorNode.Location.Filename));
+				locations.Add($"{actorNode.Key} ({actorNode.Location.Filename})");
 				var resourceRenderer = new MiniYamlNode("D2kResourceRenderer", "");
 				resourceRenderer.AddNode("RenderTypes", "");
 				actorNode.AddNode(resourceRenderer);

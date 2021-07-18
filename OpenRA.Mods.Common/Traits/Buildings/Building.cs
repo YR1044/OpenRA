@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -75,7 +75,7 @@ namespace OpenRA.Mods.Common.Traits
 			{
 				var fp = footprintYaml.Value.Value;
 				var dims = dim.X + "x" + dim.Y;
-				throw new YamlException("Invalid footprint: {0} does not match dimensions {1}".F(fp, dims));
+				throw new YamlException($"Invalid footprint: {fp} does not match dimensions {dims}");
 			}
 
 			var index = 0;
@@ -86,7 +86,7 @@ namespace OpenRA.Mods.Common.Traits
 				{
 					var c = footprintChars[index++];
 					if (!Enum.IsDefined(typeof(FootprintCellType), (FootprintCellType)c))
-						throw new YamlException("Invalid footprint cell type '{0}'".F(c));
+						throw new YamlException($"Invalid footprint cell type '{c}'");
 
 					ret[new CVec(x, y)] = (FootprintCellType)c;
 				}

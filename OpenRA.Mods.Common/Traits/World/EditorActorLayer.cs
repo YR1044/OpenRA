@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -205,12 +205,12 @@ namespace OpenRA.Mods.Common.Traits
 
 			for (var index = 0; index < newCount; index++)
 			{
-				if (Players.Players.ContainsKey("Multi{0}".F(index)))
+				if (Players.Players.ContainsKey($"Multi{index}"))
 					continue;
 
 				var pr = new PlayerReference
 				{
-					Name = "Multi{0}".F(index),
+					Name = $"Multi{index}",
 					Faction = "Random",
 					Playable = true,
 					Enemies = new[] { "Creeps" }
@@ -328,7 +328,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		public EditorActorPreview this[string id]
 		{
-			get { return previews.FirstOrDefault(p => p.ID.ToLowerInvariant() == id); }
+			get { return previews.FirstOrDefault(p => p.ID.Equals(id, StringComparison.OrdinalIgnoreCase)); }
 		}
 	}
 }

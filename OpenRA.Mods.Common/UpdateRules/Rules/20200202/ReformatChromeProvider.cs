@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -187,7 +187,7 @@ namespace OpenRA.Mods.Common.UpdateRules.Rules
 				regionsNode.AddNode(n.Key, n.NodeValue<int[]>());
 
 				if (n.Value.Nodes.Any())
-					overrideLocations.Add("{0}.{1} ({2})".F(chromeProviderNode.Key, n.Key, chromeProviderNode.Location.Filename));
+					overrideLocations.Add($"{chromeProviderNode.Key}.{n.Key} ({chromeProviderNode.Location.Filename})");
 			}
 
 			chromeProviderNode.Value.Nodes.RemoveAll(n => n.Key != "Inherits");
@@ -197,7 +197,7 @@ namespace OpenRA.Mods.Common.UpdateRules.Rules
 			chromeProviderNode.Value.Value = "";
 
 			if (!ExtractPanelDefinition(chromeProviderNode, regionsNode))
-				panelLocations.Add("{0} ({1})".F(chromeProviderNode.Key, chromeProviderNode.Location.Filename));
+				panelLocations.Add($"{chromeProviderNode.Key} ({chromeProviderNode.Location.Filename})");
 
 			if (regionsNode.Value.Nodes.Any())
 				chromeProviderNode.AddNode(regionsNode);

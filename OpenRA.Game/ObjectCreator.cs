@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -41,7 +41,7 @@ namespace OpenRA
 			{
 				var resolvedPath = FileSystem.FileSystem.ResolveAssemblyPath(path, manifest, mods);
 				if (resolvedPath == null)
-					throw new FileNotFoundException("Assembly `{0}` not found.".F(path));
+					throw new FileNotFoundException($"Assembly `{path}` not found.");
 
 				LoadAssembly(assemblyList, resolvedPath);
 			}
@@ -111,7 +111,7 @@ namespace OpenRA
 				if (MissingTypeAction != null)
 					MissingTypeAction(className);
 				else
-					throw new InvalidOperationException("Cannot locate type: {0}".F(className));
+					throw new InvalidOperationException($"Cannot locate type: {className}");
 
 				return default(T);
 			}
@@ -151,7 +151,7 @@ namespace OpenRA
 			for (var i = 0; i < p.Length; i++)
 			{
 				var key = p[i].Name;
-				if (!args.ContainsKey(key)) throw new InvalidOperationException("ObjectCreator: key `{0}' not found".F(key));
+				if (!args.ContainsKey(key)) throw new InvalidOperationException($"ObjectCreator: key `{key}' not found");
 				a[i] = args[key];
 			}
 
@@ -177,7 +177,7 @@ namespace OpenRA
 			{
 				var loader = FindType(format + "Loader");
 				if (loader == null || !loader.GetInterfaces().Contains(typeof(TLoader)))
-					throw new InvalidOperationException("Unable to find a {0} loader for type '{1}'.".F(name, format));
+					throw new InvalidOperationException($"Unable to find a {name} loader for type '{format}'.");
 
 				loaders.Add((TLoader)CreateBasic(loader));
 			}

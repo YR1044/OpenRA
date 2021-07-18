@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -99,7 +99,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var noTeams = teams.Count() == 1;
 			foreach (var t in teams)
 			{
-				var label = noTeams ? "Players" : t.Key == 0 ? "No Team" : "Team {0}".F(t.Key);
+				var label = noTeams ? "Players" : t.Key == 0 ? "No Team" : $"Team {t.Key}";
 				groups.Add(label, t);
 			}
 

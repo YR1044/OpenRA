@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -35,6 +35,19 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				gridButton.IsHighlighted = () => terrainGeometryTrait.Enabled;
 			}
 
+			var lockButton = widget.GetOrNull<ButtonWidget>("BUILDABLE_BUTTON");
+			if (lockButton != null)
+			{
+				var buildableTerrainTrait = world.WorldActor.TraitOrDefault<BuildableTerrainOverlay>();
+				if (buildableTerrainTrait != null)
+				{
+					lockButton.OnClick = () => buildableTerrainTrait.Enabled ^= true;
+					lockButton.IsHighlighted = () => buildableTerrainTrait.Enabled;
+				}
+				else
+					lockButton.Disabled = true;
+			}
+
 			var copypasteButton = widget.GetOrNull<ButtonWidget>("COPYPASTE_BUTTON");
 			if (copypasteButton != null)
 			{
@@ -66,8 +79,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				{
 					var cell = worldRenderer.Viewport.ViewToWorld(Viewport.LastMousePos);
 					var map = worldRenderer.World.Map;
-					return map.Height.Contains(cell) ?
-						"{0},{1} ({2})".F(cell, map.Height[cell], map.Tiles[cell].Type) : "";
+					return map.Height.Contains(cell) ? $"{cell},{map.Height[cell]} ({map.Tiles[cell].Type})" : "";
 				};
 			}
 
@@ -76,7 +88,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			{
 				var reslayer = worldRenderer.World.WorldActor.TraitsImplementing<EditorResourceLayer>().FirstOrDefault();
 				if (reslayer != null)
-					cashLabel.GetText = () => "$ {0}".F(reslayer.NetWorth);
+					cashLabel.GetText = () => $"$ {reslayer.NetWorth}";
 			}
 
 			var undoButton = widget.GetOrNull<ButtonWidget>("UNDO_BUTTON");

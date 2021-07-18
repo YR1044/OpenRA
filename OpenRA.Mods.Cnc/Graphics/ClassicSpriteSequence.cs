@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -38,8 +38,7 @@ namespace OpenRA.Mods.Cnc.Graphics
 
 			if (useClassicFacings && Facings != 32)
 				throw new InvalidOperationException(
-					"{0}: Sequence {1}.{2}: UseClassicFacings is only valid for 32 facings"
-					.F(info.Nodes[0].Location, sequence, animation));
+					$"{info.Nodes[0].Location}: Sequence {sequence}.{animation}: UseClassicFacings is only valid for 32 facings");
 		}
 
 		protected override int GetFacingFrameOffset(WAngle facing)

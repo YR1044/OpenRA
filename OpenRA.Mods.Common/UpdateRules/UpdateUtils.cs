@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -254,7 +254,7 @@ namespace OpenRA.Mods.Common.UpdateRules
 		public static string FormatMessageList(IEnumerable<string> messages, int indent = 0, string separator = "*")
 		{
 			var prefix = string.Concat(Enumerable.Repeat("   ", indent));
-			return string.Join("\n", messages.Select(m => prefix + " {0} {1}".F(separator, m.Replace("\n", "\n   " + prefix))));
+			return string.Join("\n", messages.Select(m => prefix + $" {separator} {m.Replace("\n", "\n   " + prefix)}"));
 		}
 	}
 

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -67,7 +67,7 @@ namespace OpenRA.Mods.Common.Lint
 							continue;
 
 						if (!soundInfo.Voices.Keys.Contains(voice))
-							emitError("Actor {0} using voice set {1} does not define {2} voice required by {3}.".F(actorInfo.Name, voiceSet, voice, traitInfo));
+							emitError($"Actor {actorInfo.Name} using voice set {voiceSet} does not define {voice} voice required by {traitInfo}.");
 					}
 				}
 			}

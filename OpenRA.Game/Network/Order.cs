@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -51,6 +51,9 @@ namespace OpenRA
 	{
 		// Length of orders with type OrderType.SyncHash
 		public const int SyncHashOrderLength = 13;
+
+		// Length of orders with type OrderType.Disconnect
+		public const int DisconnectOrderLength = 5;
 
 		public readonly string OrderString;
 		public readonly Actor Subject;
@@ -212,8 +215,8 @@ namespace OpenRA
 				Log.Write("debug", e.ToString());
 
 				// HACK: this can hopefully go away in the future
-				Game.Debug("Ignoring malformed order that would have crashed the game");
-				Game.Debug("Please file a bug report and include the replay from this match");
+				TextNotificationsManager.Debug("Ignoring malformed order that would have crashed the game");
+				TextNotificationsManager.Debug("Please file a bug report and include the replay from this match");
 
 				return null;
 			}
@@ -405,7 +408,7 @@ namespace OpenRA
 				}
 
 				default:
-					throw new InvalidDataException("Cannot serialize order type {0}".F(Type));
+					throw new InvalidDataException($"Cannot serialize order type {Type}");
 			}
 
 			return ret.ToArray();
@@ -413,10 +416,8 @@ namespace OpenRA
 
 		public override string ToString()
 		{
-			return ("OrderString: \"{0}\" \n\t Type: \"{1}\".  \n\t Subject: \"{2}\". \n\t Target: \"{3}\"." +
-				"\n\t TargetString: \"{4}\".\n\t IsImmediate: {5}.\n\t Player(PlayerName): {6}\n").F(
-				OrderString, Type, Subject, Target, TargetString, IsImmediate,
-				Player != null ? Player.PlayerName : null);
+			return $"OrderString: \"{OrderString}\" \n\t Type: \"{Type}\".  \n\t Subject: \"{Subject}\". \n\t Target: \"{Target}\"." +
+					$"\n\t TargetString: \"{TargetString}\".\n\t IsImmediate: {IsImmediate}.\n\t Player(PlayerName): {Player?.PlayerName}\n";
 		}
 	}
 }

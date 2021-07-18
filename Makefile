@@ -7,16 +7,16 @@
 #   make RUNTIME=mono
 #
 # to compile using system libraries for native dependencies, run:
-#   make [RUNTIME=dotnet] TARGETPLATFORM=unix-generic
+#   make [RUNTIME=net5] TARGETPLATFORM=unix-generic
 #
 # to check the official mods for erroneous yaml files, run:
-#   make [RUNTIME=dotnet] test
+#   make [RUNTIME=net5] test
 #
 # to check the engine and official mod dlls for code style violations, run:
-#   make [RUNTIME=dotnet] check
+#   make [RUNTIME=net5] check
 #
 # to compile and install Red Alert, Tiberian Dawn, and Dune 2000, run:
-#   make [RUNTIME=dotnet] [prefix=/foo] [bindir=/bar/bin] install
+#   make [RUNTIME=net5] [prefix=/foo] [bindir=/bar/bin] install
 #
 # to compile and install Red Alert, Tiberian Dawn, and Dune 2000
 # using system libraries for native dependencies, run:
@@ -53,7 +53,9 @@ RM_R = $(RM) -r
 RM_F = $(RM) -f
 RM_RF = $(RM) -rf
 
-RUNTIME ?= dotnet
+RUNTIME ?= net5
+CONFIGURATION ?= Release
+
 # Only for use in target version:
 VERSION := $(shell git name-rev --name-only --tags --no-undefined HEAD 2>/dev/null || (c=$$(git rev-parse --short HEAD 2>/dev/null) && echo git-$$c))
 
@@ -75,11 +77,12 @@ endif
 ##################### DEVELOPMENT BUILDS AND TESTS #####################
 #
 all:
+	@echo "Compiling in ${CONFIGURATION} mode..."
 ifeq ($(RUNTIME), mono)
 	@command -v $(firstword $(MSBUILD)) >/dev/null || (echo "OpenRA requires the '$(MSBUILD)' tool provided by Mono >= 6.4."; exit 1)
-	@$(MSBUILD) -t:Build -restore -p:Configuration=Release -p:TargetPlatform=$(TARGETPLATFORM) -p:Mono=true
+	@$(MSBUILD) -t:Build -restore -p:Configuration=${CONFIGURATION} -p:TargetPlatform=$(TARGETPLATFORM) -p:Mono=true
 else
-	@$(DOTNET) build -c Release -nologo -p:TargetPlatform=$(TARGETPLATFORM)
+	@$(DOTNET) build -c ${CONFIGURATION} -nologo -p:TargetPlatform=$(TARGETPLATFORM)
 endif
 ifeq ($(TARGETPLATFORM), unix-generic)
 	@./configure-system-libraries.sh
@@ -141,11 +144,7 @@ endif
 	@sh -c '. ./packaging/functions.sh; set_mod_version "$(VERSION)" mods/ra/mod.yaml mods/cnc/mod.yaml mods/d2k/mod.yaml mods/ts/mod.yaml mods/modcontent/mod.yaml mods/all/mod.yaml'
 
 install:
-ifeq ($(RUNTIME), mono)
-	@sh -c '. ./packaging/functions.sh; install_assemblies_mono $(CWD) $(DESTDIR)$(gameinstalldir) $(TARGETPLATFORM) True True True'
-else
-	@sh -c '. ./packaging/functions.sh; install_assemblies $(CWD) $(DESTDIR)$(gameinstalldir) $(TARGETPLATFORM) True True True'
-endif
+	@sh -c '. ./packaging/functions.sh; install_assemblies $(CWD) $(DESTDIR)$(gameinstalldir) $(TARGETPLATFORM) $(RUNTIME) True True True'
 	@sh -c '. ./packaging/functions.sh; install_data $(CWD) $(DESTDIR)$(gameinstalldir) cnc d2k ra'
 
 install-linux-shortcuts:
@@ -162,20 +161,20 @@ help:
 	@echo '  make RUNTIME=mono'
 	@echo
 	@echo 'to compile using system libraries for native dependencies, run:'
-	@echo '  make [RUNTIME=dotnet] TARGETPLATFORM=unix-generic'
+	@echo '  make [RUNTIME=net5] TARGETPLATFORM=unix-generic'
 	@echo
 	@echo 'to check the official mods for erroneous yaml files, run:'
-	@echo '  make [RUNTIME=dotnet] test'
+	@echo '  make [RUNTIME=net5] test'
 	@echo
 	@echo 'to check the engine and official mod dlls for code style violations, run:'
-	@echo '  make [RUNTIME=dotnet] check'
+	@echo '  make [RUNTIME=net5] check'
 	@echo
 	@echo 'to compile and install Red Alert, Tiberian Dawn, and Dune 2000 run:'
-	@echo '  make [RUNTIME=dotnet] [prefix=/foo] [TARGETPLATFORM=unix-generic] install'
+	@echo '  make [RUNTIME=net5] [prefix=/foo] [TARGETPLATFORM=unix-generic] install'
 	@echo
 	@echo 'to compile and install Red Alert, Tiberian Dawn, and Dune 2000'
 	@echo 'using system libraries for native dependencies, run:'
-	@echo '   make [RUNTIME=dotnet] [prefix=/foo] [bindir=/bar/bin] TARGETPLATFORM=unix-generic install'
+	@echo '   make [RUNTIME=net5] [prefix=/foo] [bindir=/bar/bin] TARGETPLATFORM=unix-generic install'
 	@echo
 	@echo 'to install Linux startup scripts, desktop files, icons, and MIME metadata'
 	@echo '  make install-linux-shortcuts'

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -31,6 +31,13 @@ namespace OpenRA
 		Protected = 4,
 		Started = 8,
 		Incompatible = 16
+	}
+
+	[Flags]
+	public enum TextNotificationPoolFilters
+	{
+		None = 0,
+		Feedback = 1
 	}
 
 	public enum WorldViewport { Native, Close, Medium, Far }
@@ -262,6 +269,11 @@ namespace OpenRA
 		public MPGameFilters MPGameFilters = MPGameFilters.Waiting | MPGameFilters.Empty | MPGameFilters.Protected | MPGameFilters.Started;
 
 		public bool PauseShellmap = false;
+
+		[Desc("Allow mods to enable the Discord service that can interact with a local Discord client.")]
+		public bool EnableDiscordService = true;
+
+		public TextNotificationPoolFilters TextNotificationPoolFilters = TextNotificationPoolFilters.Feedback;
 	}
 
 	public class Settings
@@ -301,7 +313,7 @@ namespace OpenRA
 			var err2 = FieldLoader.InvalidValueAction;
 			try
 			{
-				FieldLoader.UnknownFieldAction = (s, f) => Console.WriteLine("Ignoring unknown field `{0}` on `{1}`".F(s, f.Name));
+				FieldLoader.UnknownFieldAction = (s, f) => Console.WriteLine($"Ignoring unknown field `{s}` on `{f.Name}`");
 
 				if (File.Exists(settingsFile))
 				{
@@ -427,7 +439,7 @@ namespace OpenRA
 			FieldLoader.InvalidValueAction = (s, t, f) =>
 			{
 				var ret = defaults.GetType().GetField(f).GetValue(defaults);
-				Console.WriteLine("FieldLoader: Cannot parse `{0}` into `{2}:{1}`; substituting default `{3}`".F(s, t.Name, f, ret));
+				Console.WriteLine($"FieldLoader: Cannot parse `{s}` into `{f}:{t.Name}`; substituting default `{ret}`");
 				return ret;
 			};
 

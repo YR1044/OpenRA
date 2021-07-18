@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -176,7 +176,7 @@ namespace OpenRA.Mods.Common.Traits
 					var amount = order.ExtraData != 0 ? (int)order.ExtraData : info.Cash;
 					self.Trait<PlayerResources>().ChangeCash(amount);
 
-					debugSuffix = " ({0} credits)".F(amount);
+					debugSuffix = $" ({amount} credits)";
 					break;
 				}
 
@@ -188,7 +188,7 @@ namespace OpenRA.Mods.Common.Traits
 					foreach (var player in receivingPlayers)
 						player.PlayerActor.Trait<PlayerResources>().ChangeCash(amount);
 
-					debugSuffix = " ({0} credits)".F(amount);
+					debugSuffix = $" ({amount} credits)";
 					break;
 				}
 
@@ -273,7 +273,7 @@ namespace OpenRA.Mods.Common.Traits
 					return;
 			}
 
-			Game.Debug("Cheat used: {0} by {1}{2}", order.OrderString, self.Owner.PlayerName, debugSuffix);
+			TextNotificationsManager.Debug("Cheat used: {0} by {1}{2}", order.OrderString, self.Owner.PlayerName, debugSuffix);
 		}
 
 		bool IUnlocksRenderPlayer.RenderPlayerUnlocked => Enabled;

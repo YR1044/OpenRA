@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -69,7 +69,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					if (!File.Exists(Path.Combine(baseSavePath, defaultSaveFilename + ".orasav")))
 						break;
 
-					defaultSaveFilename = world.Map.Title + " ({0})".F(++filenameAttempt);
+					defaultSaveFilename = world.Map.Title + $" ({++filenameAttempt})";
 				}
 
 				var saveButton = panel.Get<ButtonWidget>("SAVE_BUTTON");
@@ -132,7 +132,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			{
 				ConfirmationDialogs.ButtonPrompt(
 					title: "Delete selected game save?",
-					text: "Delete '{0}'?".F(Path.GetFileNameWithoutExtension(selectedSave)),
+					text: $"Delete '{Path.GetFileNameWithoutExtension(selectedSave)}'?",
 					onConfirm: () =>
 					{
 						Delete(selectedSave);
@@ -155,7 +155,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			{
 				ConfirmationDialogs.ButtonPrompt(
 					title: "Delete all game saves?",
-					text: "Delete {0} game saves?".F(games.Count),
+					text: $"Delete {games.Count} game saves?",
 					onConfirm: () =>
 					{
 						foreach (var s in games.ToList())
@@ -252,7 +252,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			}
 			catch (Exception ex)
 			{
-				Game.Debug("Failed to delete save file '{0}'. See the logs for details.", savePath);
+				TextNotificationsManager.Debug("Failed to delete save file '{0}'. See the logs for details.", savePath);
 				Log.Write("debug", ex.ToString());
 				return;
 			}
@@ -295,7 +295,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var orders = new List<Order>()
 			{
 				Order.FromTargetString("LoadGameSave", Path.GetFileName(selectedSave), true),
-				Order.Command("state {0}".F(Session.ClientState.Ready))
+				Order.Command($"state {Session.ClientState.Ready}")
 			};
 
 			Game.CreateAndStartLocalServer(map.Uid, orders);
@@ -322,7 +322,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			{
 				ConfirmationDialogs.ButtonPrompt(
 					title: "Overwrite save game?",
-					text: "Overwrite {0}?".F(saveTextField.Text),
+					text: $"Overwrite {saveTextField.Text}?",
 					onConfirm: inner,
 					confirmText: "Overwrite",
 					onCancel: () => { });

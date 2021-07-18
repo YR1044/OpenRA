@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -69,14 +69,14 @@ namespace OpenRA
 				il.MarkLabel(l);
 			}
 			else if (type != typeof(int))
-				throw new NotImplementedException("SyncAttribute on member of unhashable type: {0}".F(type.FullName));
+				throw new NotImplementedException($"SyncAttribute on member of unhashable type: {type.FullName}");
 
 			il.Emit(OpCodes.Xor);
 		}
 
 		static Func<object, int> GenerateHashFunc(Type t)
 		{
-			var d = new DynamicMethod("hash_{0}".F(t.Name), typeof(int), new Type[] { typeof(object) }, t);
+			var d = new DynamicMethod($"hash_{t.Name}", typeof(int), new Type[] { typeof(object) }, t);
 			var il = d.GetILGenerator();
 			var this_ = il.DeclareLocal(t).LocalIndex;
 			il.Emit(OpCodes.Ldarg_0);

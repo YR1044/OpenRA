@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -353,14 +353,14 @@ namespace OpenRA
 			if (voicedActor != null)
 			{
 				if (!rules.VoicePools.Value.ContainsKey(definition))
-					throw new InvalidOperationException("Can't find {0} in voice pool.".F(definition));
+					throw new InvalidOperationException($"Can't find {definition} in voice pool.");
 
 				pool = rules.VoicePools.Value[definition];
 			}
 			else
 			{
 				if (!rules.NotificationsPools.Value.ContainsKey(definition))
-					throw new InvalidOperationException("Can't find {0} in notification pool.".F(definition));
+					throw new InvalidOperationException($"Can't find {definition} in notification pool.");
 
 				pool = rules.NotificationsPools.Value[definition];
 			}

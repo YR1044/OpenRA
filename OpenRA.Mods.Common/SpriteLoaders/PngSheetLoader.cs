@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -103,7 +103,7 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 				var coords = frame.Split(';');
 				var region = FieldLoader.GetValue<Rectangle>("Region", coords[0]);
 				if (!pngRectangle.Contains(region))
-					throw new InvalidDataException("Invalid frame regions {0} defined.".F(region));
+					throw new InvalidDataException($"Invalid frame regions {region} defined.");
 
 				regions.Add(region);
 				offsets.Add(FieldLoader.GetValue<float2>("Offset", coords[1]));
@@ -146,7 +146,7 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 
 			var rows = (frameAmount + framesPerRow - 1) / framesPerRow;
 			if (png.Width < frameSize.Width * frameAmount / rows || png.Height < frameSize.Height * rows)
-				throw new InvalidDataException("Invalid frame size {0} and frame amount {1} defined.".F(frameSize, frameAmount));
+				throw new InvalidDataException($"Invalid frame size {frameSize} and frame amount {frameAmount} defined.");
 
 			regions = new List<Rectangle>();
 			offsets = new List<float2>();

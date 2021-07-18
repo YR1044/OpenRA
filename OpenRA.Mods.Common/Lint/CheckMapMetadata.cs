@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -30,7 +30,7 @@ namespace OpenRA.Mods.Common.Lint
 		void Run(Action<string> emitError, int mapFormat, string author, string title, string[] categories)
 		{
 			if (mapFormat != Map.SupportedMapFormat)
-				emitError("Map format {0} does not match the supported version {1}.".F(mapFormat, Map.SupportedMapFormat));
+				emitError($"Map format {mapFormat} does not match the supported version {Map.SupportedMapFormat}.");
 
 			if (author == null)
 				emitError("Map does not define a valid author.");

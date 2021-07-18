@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -67,7 +67,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 				// The original game isn't case sensitive, but we are.
 				var tileset = GetTileset(mapSection).ToUpperInvariant();
 				if (!ModData.DefaultTerrainInfo.TryGetValue(tileset, out var terrainInfo))
-					throw new InvalidDataException("Unknown tileset {0}".F(tileset));
+					throw new InvalidDataException($"Unknown tileset {tileset}");
 
 				Map = new Map(ModData, terrainInfo, MapSize, MapSize)
 				{
@@ -299,8 +299,8 @@ namespace OpenRA.Mods.Common.UtilityCommands
 				var parts = s.Value.Split(',');
 				var loc = Exts.ParseIntegerInvariant(parts[1]);
 				var type = parts[0].ToLowerInvariant();
-				var key = "{0},{1}".F(loc % MapSize, loc / MapSize);
-				var value = "{0},{1}".F(type, parts[2]);
+				var key = $"{loc % MapSize},{loc / MapSize}";
+				var value = $"{type},{parts[2]}";
 				var node = new MiniYamlNode(key, value);
 				if (type.StartsWith("sc"))
 					scorches.Add(node);
@@ -422,13 +422,13 @@ namespace OpenRA.Mods.Common.UtilityCommands
 					var actorCount = map.ActorDefinitions.Count;
 
 					if (!map.Rules.Actors.ContainsKey(parts[1].ToLowerInvariant()))
-						Console.WriteLine("Ignoring unknown actor type: `{0}`".F(parts[1].ToLowerInvariant()));
+						Console.WriteLine($"Ignoring unknown actor type: `{parts[1].ToLowerInvariant()}`");
 					else
 						map.ActorDefinitions.Add(new MiniYamlNode("Actor" + actorCount++, actor.Save()));
 				}
 				catch (Exception)
 				{
-					Console.WriteLine("Malformed actor definition: `{0}`".F(s));
+					Console.WriteLine($"Malformed actor definition: `{s}`");
 				}
 			}
 		}

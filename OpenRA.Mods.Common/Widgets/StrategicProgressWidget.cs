@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -65,9 +65,7 @@ namespace OpenRA.Mods.Common.Widgets
 			var winnerSvc = pendingWinner.PlayerActor.Trait<StrategicVictoryConditions>();
 
 			var isVictory = pendingWinner.RelationshipWith(world.LocalPlayer) == PlayerRelationship.Ally;
-			var tc = "Strategic {0} in {1}".F(
-				isVictory ? "victory" : "defeat",
-				WidgetUtils.FormatTime(winnerSvc.TicksLeft, world.Timestep));
+			var tc = $"Strategic {(isVictory ? "victory" : "defeat")} in {WidgetUtils.FormatTime(winnerSvc.TicksLeft, world.Timestep)}";
 
 			var font = Game.Renderer.Fonts["Bold"];
 

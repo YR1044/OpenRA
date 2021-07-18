@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -43,7 +43,7 @@ namespace OpenRA.Graphics
 
 			// Pre-cache small font sizes so glyphs are immediately available when we need them
 			if (size <= 24)
-				using (new PerfTimer("Precache {0} {1}px".F(name, size)))
+				using (new PerfTimer($"Precache {name} {size}px"))
 					for (var n = (char)0x20; n < (char)0x7f; n++)
 						if (glyphs[n] == null)
 							throw new InvalidOperationException();

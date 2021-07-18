@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -39,7 +39,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 			if (mapPackage != null)
 				sequences = new Map(modData, mapPackage).Rules.Sequences;
 			else if (!modData.DefaultSequences.TryGetValue(args[2], out sequences))
-				throw new InvalidOperationException("{0} is not a valid tileset or map path".F(args[2]));
+				throw new InvalidOperationException($"{args[2]} is not a valid tileset or map path");
 
 			sequences.Preload();
 
@@ -50,12 +50,12 @@ namespace OpenRA.Mods.Common.UtilityCommands
 			{
 				var max = s == sb.Current ? (int)sb.CurrentChannel + 1 : 4;
 				for (var i = 0; i < max; i++)
-					s.AsPng((TextureChannel)ChannelMasks[i], palette).Save("{0}.png".F(count++));
+					s.AsPng((TextureChannel)ChannelMasks[i], palette).Save($"{count++}.png");
 			}
 
 			sb = sequences.SpriteCache.SheetBuilders[SheetType.BGRA];
 			foreach (var s in sb.AllSheets)
-				s.AsPng().Save("{0}.png".F(count++));
+				s.AsPng().Save($"{count++}.png");
 
 			Console.WriteLine("Saved [0..{0}].png", count - 1);
 		}

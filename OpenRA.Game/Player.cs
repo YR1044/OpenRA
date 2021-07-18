@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -118,7 +118,7 @@ namespace OpenRA
 				selected = selectableFactions.FirstOrDefault(f => f.InternalName == faction);
 
 				if (selected == null)
-					throw new YamlException("Unknown faction: {0}".F(faction));
+					throw new YamlException($"Unknown faction: {faction}");
 			}
 
 			return selected;
@@ -143,7 +143,7 @@ namespace OpenRA
 			{
 				var botInfo = botInfos.First(b => b.Type == client.Bot);
 				var botsOfSameType = clients.Where(c => c.Bot == client.Bot).ToArray();
-				return botsOfSameType.Length == 1 ? botInfo.Name : "{0} {1}".F(botInfo.Name, botsOfSameType.IndexOf(client) + 1);
+				return botsOfSameType.Length == 1 ? botInfo.Name : $"{botInfo.Name} {botsOfSameType.IndexOf(client) + 1}";
 			}
 
 			return client.Name;
@@ -178,7 +178,7 @@ namespace OpenRA
 			else
 			{
 				// Map player
-				ClientIndex = 0; // Owned by the host (TODO: fix this)
+				ClientIndex = world.LobbyInfo.Clients.FirstOrDefault(c => c.IsAdmin)?.Index ?? 0; // Owned by the host (TODO: fix this)
 				Color = pr.Color;
 				PlayerName = pr.Name;
 				NonCombatant = pr.NonCombatant;
@@ -230,7 +230,7 @@ namespace OpenRA
 
 		public override string ToString()
 		{
-			return "{0} ({1})".F(PlayerName, ClientIndex);
+			return $"{PlayerName} ({ClientIndex})";
 		}
 
 		public PlayerRelationship RelationshipWith(Player other)
@@ -305,7 +305,7 @@ namespace OpenRA
 
 		public LuaValue ToString(LuaRuntime runtime)
 		{
-			return "Player ({0})".F(PlayerName);
+			return $"Player ({PlayerName})";
 		}
 
 		#endregion

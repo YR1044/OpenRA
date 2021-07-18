@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -27,7 +27,7 @@ namespace OpenRA.Traits
 
 		public override int GetHashCode() { return Actor.GetHashCode() ^ Bounds.GetHashCode(); }
 
-		public override string ToString() { return "{0}->{1}".F(Actor.Info.Name, Bounds.GetType().Name); }
+		public override string ToString() { return $"{Actor.Info.Name}->{Bounds.GetType().Name}"; }
 	}
 
 	[TraitLocation(SystemActors.World | SystemActors.EditorWorld)]

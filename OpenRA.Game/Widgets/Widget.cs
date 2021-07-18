@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Network;
 using OpenRA.Primitives;
 using OpenRA.Support;
 
@@ -24,7 +25,7 @@ namespace OpenRA.Widgets
 
 		public static Widget Root = new ContainerWidget();
 
-		public static long LastTickTime = Game.RunTime;
+		public static TickTime LastTickTime = new TickTime(() => Timestep, Game.RunTime);
 
 		static readonly Stack<Widget> WindowList = new Stack<Widget>();
 
@@ -80,7 +81,7 @@ namespace OpenRA.Widgets
 			if (LoadWidget(id, parent, args) is T widget)
 				return widget;
 
-			throw new InvalidOperationException("Widget {0} is not of type {1}".F(id, typeof(T).Name));
+			throw new InvalidOperationException($"Widget {id} is not of type {typeof(T).Name}");
 		}
 
 		public static Widget LoadWidget(string id, Widget parent, WidgetArgs args)
@@ -236,7 +237,7 @@ namespace OpenRA.Widgets
 
 		public virtual Widget Clone()
 		{
-			throw new InvalidOperationException("Widget type `{0}` is not cloneable.".F(GetType().Name));
+			throw new InvalidOperationException($"Widget type `{GetType().Name}` is not cloneable.");
 		}
 
 		public virtual int2 RenderOrigin
@@ -579,9 +580,7 @@ namespace OpenRA.Widgets
 		{
 			var t = GetOrNull<T>(id);
 			if (t == null)
-				throw new InvalidOperationException(
-					"Widget {0} has no child {1} of type {2}".F(
-						Id, id, typeof(T).Name));
+				throw new InvalidOperationException($"Widget {Id} has no child {id} of type {typeof(T).Name}");
 			return t;
 		}
 

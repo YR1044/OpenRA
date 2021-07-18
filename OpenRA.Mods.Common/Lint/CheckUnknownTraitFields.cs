@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -54,10 +54,10 @@ namespace OpenRA.Mods.Common.Lint
 					if (t.Key.StartsWith("-", StringComparison.Ordinal))
 					{
 						if (t.Value.Nodes.Any())
-							emitError("{0} {1} defines child nodes, which are not valid for removals.".F(t.Location, t.Key));
+							emitError($"{t.Location} {t.Key} defines child nodes, which are not valid for removals.");
 
 						if (!string.IsNullOrEmpty(t.Value.Value))
-							emitError("{0} {1} defines a value, which is not valid for removals.".F(t.Location, t.Key));
+							emitError($"{t.Location} {t.Key} defines a value, which is not valid for removals.");
 
 						continue;
 					}
@@ -67,7 +67,7 @@ namespace OpenRA.Mods.Common.Lint
 					// Inherits can never define children
 					if (traitName == "Inherits" && t.Value.Nodes.Any())
 					{
-						emitError("{0} defines child nodes, which are not valid for Inherits.".F(t.Location));
+						emitError($"{t.Location} defines child nodes, which are not valid for Inherits.");
 						continue;
 					}
 
@@ -76,7 +76,7 @@ namespace OpenRA.Mods.Common.Lint
 					{
 						var fieldName = NormalizeName(field.Key);
 						if (traitInfo.GetField(fieldName) == null)
-							emitError("{0} refers to a trait field `{1}` that does not exist on `{2}`.".F(field.Location, fieldName, traitName));
+							emitError($"{field.Location} refers to a trait field `{fieldName}` that does not exist on `{traitName}`.");
 					}
 				}
 			}

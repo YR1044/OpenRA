@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -36,7 +36,7 @@ namespace OpenRA.Mods.Common.Lint
 			foreach (var li in locomotorInfos)
 				foreach (var otherLocomotor in locomotorInfos)
 					if (li != otherLocomotor && li.Name == otherLocomotor.Name)
-						emitError("There is more than one Locomotor with name {0}!".F(li.Name));
+						emitError($"There is more than one Locomotor with name {li.Name}!");
 
 			foreach (var actorInfo in rules.Actors)
 			{
@@ -61,7 +61,7 @@ namespace OpenRA.Mods.Common.Lint
 		void CheckLocomotors(ActorInfo actorInfo, Action<string> emitError, Ruleset rules, LocomotorInfo[] locomotorInfos, string locomotor)
 		{
 			if (!locomotorInfos.Any(l => l.Name == locomotor))
-				emitError("Actor {0} defines Locomotor {1} not found on World actor.".F(actorInfo.Name, locomotor));
+				emitError($"Actor {actorInfo.Name} defines Locomotor {locomotor} not found on World actor.");
 		}
 	}
 }

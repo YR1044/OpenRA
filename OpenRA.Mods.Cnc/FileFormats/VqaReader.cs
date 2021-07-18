@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -142,7 +142,7 @@ namespace OpenRA.Mods.Cnc.FileFormats
 					type = stream.ReadASCII(4);
 				}
 				else
-					throw new NotSupportedException("Vqa uses unknown Subtype: {0}".F(type));
+					throw new NotSupportedException($"Vqa uses unknown Subtype: {type}");
 			}
 
 			/*var length = */stream.ReadUInt16();
@@ -217,7 +217,7 @@ namespace OpenRA.Mods.Cnc.FileFormats
 							break;
 						default:
 							if (length + stream.Position > stream.Length)
-								throw new NotSupportedException("Vqa uses unknown Subtype: {0}".F(type));
+								throw new NotSupportedException($"Vqa uses unknown Subtype: {type}");
 							stream.ReadBytes((int)length);
 							break;
 					}
@@ -420,7 +420,7 @@ namespace OpenRA.Mods.Cnc.FileFormats
 						vtprSize = subchunkLength;
 						return;
 					default:
-						throw new InvalidDataException("Unknown sub-chunk {0}".F(type));
+						throw new InvalidDataException($"Unknown sub-chunk {type}");
 				}
 			}
 		}
@@ -562,7 +562,7 @@ namespace OpenRA.Mods.Cnc.FileFormats
 					// Replicate previous
 					var srcIndex = destIndex - rpos;
 					if (srcIndex > destIndex)
-						throw new NotImplementedException("srcIndex > destIndex {0} {1}".F(srcIndex, destIndex));
+						throw new NotImplementedException($"srcIndex > destIndex {srcIndex} {destIndex}");
 
 					for (var j = 0; j < count; j++)
 					{
@@ -602,7 +602,7 @@ namespace OpenRA.Mods.Cnc.FileFormats
 						var count = count3 == 0x3F ? ctx.ReadWord() : count3 + 3;
 						var srcIndex = reverse ? destIndex - ctx.ReadWord() : ctx.ReadWord();
 						if (srcIndex >= destIndex)
-							throw new NotImplementedException("srcIndex >= destIndex {0} {1}".F(srcIndex, destIndex));
+							throw new NotImplementedException($"srcIndex >= destIndex {srcIndex} {destIndex}");
 
 						for (var end = destIndex + count; destIndex < end; destIndex++)
 							dest[destIndex] = dest[srcIndex++];

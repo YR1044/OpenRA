@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -161,7 +161,7 @@ namespace OpenRA.Mods.D2k.Traits
 					UpdateSpriteLayers(cell, content.Sequence, index, content.Palette);
 				}
 				else
-					throw new InvalidOperationException("SpriteMap does not contain an index for ClearSides type '{0}'".F(clear));
+					throw new InvalidOperationException($"SpriteMap does not contain an index for ClearSides type '{clear}'");
 			}
 			else
 				UpdateSpriteLayers(cell, null, 0, null);

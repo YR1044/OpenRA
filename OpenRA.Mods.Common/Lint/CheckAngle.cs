@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -61,16 +61,16 @@ namespace OpenRA.Mods.Common.Lint
 		static void CheckLaunchAngles(string weaponInfo, int minAngle, bool testMaxAngle, int maxAngle, Action<string> emitError)
 		{
 			if (InvalidAngle(minAngle))
-				emitError("Weapon `{0}`: Projectile minimum LaunchAngle must not exceed (-)255!".F(weaponInfo));
+				emitError($"Weapon `{weaponInfo}`: Projectile minimum LaunchAngle must not exceed (-)255!");
 			if (testMaxAngle && InvalidAngle(maxAngle))
-				emitError("Weapon `{0}`: Projectile maximum LaunchAngle must not exceed (-)255!".F(weaponInfo));
+				emitError($"Weapon `{weaponInfo}`: Projectile maximum LaunchAngle must not exceed (-)255!");
 
 			if ((minAngle < 256) && (maxAngle < 256) && (minAngle > maxAngle))
-				emitError("Weapon `{0}`: Projectile minimum LaunchAngle must not exceed maximum LaunchAngle!".F(weaponInfo));
+				emitError($"Weapon `{weaponInfo}`: Projectile minimum LaunchAngle must not exceed maximum LaunchAngle!");
 			if ((minAngle > 768) && (maxAngle > 768) && (minAngle > maxAngle))
-				emitError("Weapon `{0}`: Projectile minimum LaunchAngle must not exceed maximum LaunchAngle!".F(weaponInfo));
+				emitError($"Weapon `{weaponInfo}`: Projectile minimum LaunchAngle must not exceed maximum LaunchAngle!");
 			if ((minAngle < 256) && (maxAngle > 768))
-				emitError("Weapon `{0}`: Projectile minimum LaunchAngle must not exceed maximum LaunchAngle!".F(weaponInfo));
+				emitError($"Weapon `{weaponInfo}`: Projectile minimum LaunchAngle must not exceed maximum LaunchAngle!");
 		}
 	}
 }

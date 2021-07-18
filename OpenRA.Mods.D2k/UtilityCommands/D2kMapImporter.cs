@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -357,7 +357,7 @@ namespace OpenRA.Mods.D2k.UtilityCommands
 				{
 					var kvp = ActorDataByActorCode[tileSpecialInfo];
 					if (!rules.Actors.ContainsKey(kvp.Actor.ToLowerInvariant()))
-						throw new InvalidOperationException("Actor with name {0} could not be found in the rules YAML file!".F(kvp.Actor));
+						throw new InvalidOperationException($"Actor with name {kvp.Actor} could not be found in the rules YAML file!");
 
 					var a = new ActorReference(kvp.Actor)
 					{
@@ -487,8 +487,8 @@ namespace OpenRA.Mods.D2k.UtilityCommands
 			if (template == null)
 			{
 				var pos = GetCurrentTilePositionOnMap();
-				Console.WriteLine("Tile with index {0} could not be found in the tileset YAML file!".F(tileIndex));
-				Console.WriteLine("Defaulting to a \"clear\" tile for coordinates ({0}, {1})!".F(pos.X, pos.Y));
+				Console.WriteLine($"Tile with index {tileIndex} could not be found in the tileset YAML file!");
+				Console.WriteLine($"Defaulting to a \"clear\" tile for coordinates ({pos.X}, {pos.Y})!");
 				return clearTile;
 			}
 

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -65,7 +65,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			if (mapFilterInput != null)
 			{
 				mapFilterInput.TakeKeyboardFocus();
-				mapFilterInput.OnEscKey = () =>
+				mapFilterInput.OnEscKey = _ =>
 				{
 					if (mapFilterInput.Text.Length == 0)
 						canceling();
@@ -77,7 +77,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 					return true;
 				};
-				mapFilterInput.OnEnterKey = () => { approving(); return true; };
+				mapFilterInput.OnEnterKey = _ => { approving(); return true; };
 				mapFilterInput.OnTextEdited = () =>
 				{
 					mapFilter = mapFilterInput.Text;
@@ -193,7 +193,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				// 'all game types' extra item
 				categories.Insert(0, (null as string, tabMaps[tab].Count()));
 
-				Func<(string Category, int Count), string> showItem = x => "{0} ({1})".F(x.Category ?? "All Maps", x.Count);
+				Func<(string Category, int Count), string> showItem = x => $"{x.Category ?? "All Maps"} ({x.Count})";
 
 				Func<(string Category, int Count), ScrollItemWidget, ScrollItemWidget> setupItem = (ii, template) =>
 				{
@@ -272,7 +272,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					if (type != null)
 						details = type + " ";
 
-					details += "({0} players)".F(preview.PlayerCount);
+					details += $"({preview.PlayerCount} players)";
 					detailsWidget.GetText = () => details;
 				}
 
@@ -280,7 +280,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				if (authorWidget != null)
 				{
 					var font = Game.Renderer.Fonts[authorWidget.Font];
-					var author = WidgetUtils.TruncateText("Created by {0}".F(preview.Author), authorWidget.Bounds.Width, font);
+					var author = WidgetUtils.TruncateText($"Created by {preview.Author}", authorWidget.Bounds.Width, font);
 					authorWidget.GetText = () => author;
 				}
 
@@ -320,7 +320,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			}
 			catch (Exception ex)
 			{
-				Game.Debug("Failed to delete map '{0}'. See the debug.log file for details.", map);
+				TextNotificationsManager.Debug("Failed to delete map '{0}'. See the debug.log file for details.", map);
 				Log.Write("debug", ex.ToString());
 			}
 
@@ -331,7 +331,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		{
 			ConfirmationDialogs.ButtonPrompt(
 				title: "Delete map",
-				text: "Delete the map '{0}'?".F(modData.MapCache[map].Title),
+				text: $"Delete the map '{modData.MapCache[map].Title}'?",
 				onConfirm: () =>
 				{
 					var newUid = DeleteMap(map);

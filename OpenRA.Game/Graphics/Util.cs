@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -108,7 +108,7 @@ namespace OpenRA.Graphics
 									}
 
 									default:
-										throw new InvalidOperationException("Unknown SpriteFrameType {0}".F(srcType));
+										throw new InvalidOperationException($"Unknown SpriteFrameType {srcType}");
 								}
 
 								var cc = Color.FromArgb(a, r, g, b);
@@ -181,7 +181,7 @@ namespace OpenRA.Graphics
 
 								// Pngs don't support BGR[A], so no need to include them here
 								default:
-									throw new InvalidOperationException("Unknown SpriteFrameType {0}".F(src.Type));
+									throw new InvalidOperationException($"Unknown SpriteFrameType {src.Type}");
 							}
 
 							data[(y + j) * destStride + x + i] = PremultiplyAlpha(cc).ToArgb();

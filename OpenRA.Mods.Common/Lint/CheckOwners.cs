@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2020 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -35,16 +35,16 @@ namespace OpenRA.Mods.Common.Lint
 				var actorReference = new ActorReference(kv.Value.Value, kv.Value.ToDictionary());
 				var ownerInit = actorReference.GetOrDefault<OwnerInit>();
 				if (ownerInit == null)
-					emitError("Actor {0} is not owned by any player.".F(kv.Key));
+					emitError($"Actor {kv.Key} is not owned by any player.");
 				else
 				{
 					var ownerName = ownerInit.InternalName;
 					if (!playerNames.Contains(ownerName))
-						emitError("Actor {0} is owned by unknown player {1}.".F(kv.Key, ownerName));
+						emitError($"Actor {kv.Key} is owned by unknown player {ownerName}.");
 
 					if (actorsWithRequiredOwner.TryGetValue(kv.Value.Value, out var info))
 						if (!info.ValidOwnerNames.Contains(ownerName))
-							emitError("Actor {0} owner {1} is not one of ValidOwnerNames: {2}".F(kv.Key, ownerName, info.ValidOwnerNames.JoinWith(", ")));
+							emitError($"Actor {kv.Key} owner {ownerName} is not one of ValidOwnerNames: {info.ValidOwnerNames.JoinWith(", ")}");
 				}
 			}
 		}
