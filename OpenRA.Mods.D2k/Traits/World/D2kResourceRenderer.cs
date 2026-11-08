@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,9 +10,8 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Linq;
-using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
 
@@ -41,10 +40,10 @@ namespace OpenRA.Mods.D2k.Traits
 			BottomLeft = 0x40,
 			BottomRight = 0x80,
 
-			All = 0xFF
+			All = Left | Top | Right | Bottom | TopLeft | TopRight | BottomLeft | BottomRight
 		}
 
-		public static readonly Dictionary<ClearSides, int> SpriteMap = new Dictionary<ClearSides, int>()
+		public static readonly FrozenDictionary<ClearSides, int> SpriteMap = new Dictionary<ClearSides, int>
 		{
 			{ ClearSides.Left | ClearSides.Top | ClearSides.TopLeft | ClearSides.TopRight | ClearSides.BottomLeft | ClearSides.BottomRight, 2 },
 			{ ClearSides.Top | ClearSides.Right | ClearSides.TopLeft | ClearSides.TopRight | ClearSides.BottomLeft | ClearSides.BottomRight, 3 },
@@ -92,7 +91,7 @@ namespace OpenRA.Mods.D2k.Traits
 			{ ClearSides.Right | ClearSides.TopLeft | ClearSides.TopRight | ClearSides.BottomRight, 47 },
 			{ ClearSides.Bottom | ClearSides.TopRight | ClearSides.BottomLeft | ClearSides.BottomRight, 48 },
 			{ ClearSides.Bottom | ClearSides.TopLeft | ClearSides.BottomLeft | ClearSides.BottomRight, 49 },
-		};
+		}.ToFrozenDictionary();
 
 		public D2kResourceRenderer(Actor self, D2kResourceRendererInfo info)
 			: base(self, info) { }
@@ -140,7 +139,8 @@ namespace OpenRA.Mods.D2k.Traits
 			for (var i = 0; i < directions.Length; i++)
 			{
 				var neighbour = cell + directions[i];
-				UpdateRenderedSpriteInner(neighbour, RenderContents[neighbour]);
+				if (RenderContents.Contains(neighbour))
+					UpdateRenderedSpriteInner(neighbour, RenderContents[neighbour]);
 			}
 		}
 

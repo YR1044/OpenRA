@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Terrain;
 using OpenRA.Primitives;
@@ -26,14 +27,14 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			var missingImages = new HashSet<string>();
 			var failed = false;
-			Action<uint, string> onMissingImage = (id, f) =>
+			void OnMissingImage(uint id, string f)
 			{
 				onError($"\tTemplate `{id}` references sprite `{f}` that does not exist.");
 				missingImages.Add(f);
 				failed = true;
-			};
+			}
 
-			var tileCache = new DefaultTileCache((DefaultTerrain)terrainInfo, onMissingImage);
+			var tileCache = new DefaultTileCache((DefaultTerrain)terrainInfo, OnMissingImage);
 			foreach (var t in terrainInfo.Templates)
 			{
 				var templateInfo = (DefaultTerrainTemplateInfo)t.Value;
@@ -73,7 +74,7 @@ namespace OpenRA.Mods.Common.Traits
 			map = world.Map;
 			terrainInfo = map.Rules.TerrainInfo as DefaultTerrain;
 			if (terrainInfo == null)
-				throw new InvalidDataException("TerrainRenderer can only be used with the DefaultTerrain parser");
+				throw new InvalidDataException($"{nameof(TerrainRenderer)} can only be used with the {nameof(DefaultTerrain)} parser");
 
 			tileCache = new DefaultTileCache(terrainInfo);
 		}
@@ -133,14 +134,14 @@ namespace OpenRA.Mods.Common.Traits
 		Rectangle ITiledTerrainRenderer.TemplateBounds(TerrainTemplateInfo template)
 		{
 			Rectangle? templateRect = null;
-			var tileSize = map.Grid.TileSize;
+			var tileSize = map.Rules.TerrainInfo.TileSize;
 
 			var i = 0;
 			for (var y = 0; y < template.Size.Y; y++)
 			{
 				for (var x = 0; x < template.Size.X; x++)
 				{
-					var tile = new TerrainTile(template.Id, (byte)(i++));
+					var tile = new TerrainTile(template.Id, (byte)i++);
 					if (!terrainInfo.TryGetTileInfo(tile, out var tileInfo))
 						continue;
 
@@ -148,7 +149,7 @@ namespace OpenRA.Mods.Common.Traits
 					var u = map.Grid.Type == MapGridType.Rectangular ? x : (x - y) / 2f;
 					var v = map.Grid.Type == MapGridType.Rectangular ? y : (x + y) / 2f;
 
-					var tl = new float2(u * tileSize.Width, (v - 0.5f * tileInfo.Height) * tileSize.Height) - 0.5f * sprite.Size;
+					var tl = new Vector3(u * tileSize.Width, (v - 0.5f * tileInfo.Height) * tileSize.Height, 0) - 0.5f * sprite.Size;
 					var rect = new Rectangle((int)(tl.X + sprite.Offset.X), (int)(tl.Y + sprite.Offset.Y), (int)sprite.Size.X, (int)sprite.Size.Y);
 					templateRect = templateRect.HasValue ? Rectangle.Union(templateRect.Value, rect) : rect;
 				}
@@ -159,10 +160,10 @@ namespace OpenRA.Mods.Common.Traits
 
 		IEnumerable<IRenderable> ITiledTerrainRenderer.RenderUIPreview(WorldRenderer wr, TerrainTemplateInfo t, int2 origin, float scale)
 		{
-			if (!(t is DefaultTerrainTemplateInfo template))
+			if (t is not DefaultTerrainTemplateInfo template)
 				yield break;
 
-			var ts = map.Grid.TileSize;
+			var ts = map.Rules.TerrainInfo.TileSize;
 			var gridType = map.Grid.Type;
 
 			var i = 0;
@@ -177,17 +178,17 @@ namespace OpenRA.Mods.Common.Traits
 					var sprite = tileCache.TileSprite(tile, 0);
 					var u = gridType == MapGridType.Rectangular ? x : (x - y) / 2f;
 					var v = gridType == MapGridType.Rectangular ? y : (x + y) / 2f;
-					var offset = (new float2(u * ts.Width, (v - 0.5f * tileInfo.Height) * ts.Height) - 0.5f * sprite.Size.XY).ToInt2();
+					var offset = scale * (new Vector2(u * ts.Width, (v - 0.5f * tileInfo.Height) * ts.Height) - 0.5f * sprite.Size.AsVector2());
 					var palette = template.Palette ?? terrainInfo.Palette;
 
-					yield return new UISpriteRenderable(sprite, WPos.Zero, origin + offset, 0, wr.Palette(palette), scale);
+					yield return new UISpriteRenderable(sprite, WPos.Zero, origin.ToVector2() + offset, 0, wr.Palette(palette), scale);
 				}
 			}
 		}
 
 		IEnumerable<IRenderable> ITiledTerrainRenderer.RenderPreview(WorldRenderer wr, TerrainTemplateInfo t, WPos origin)
 		{
-			if (!(t is DefaultTerrainTemplateInfo template))
+			if (t is not DefaultTerrainTemplateInfo template)
 				yield break;
 
 			var i = 0;
@@ -203,9 +204,20 @@ namespace OpenRA.Mods.Common.Traits
 					var offset = map.Offset(new CVec(x, y), tileInfo.Height);
 					var palette = wr.Palette(template.Palette ?? terrainInfo.Palette);
 
-					yield return new SpriteRenderable(sprite, origin, offset, 0, palette, 1f, 1f, float3.Ones, TintModifiers.None, false);
+					yield return new SpriteRenderable(sprite, origin, offset, 0, palette, 1f, 1f, Vector3.One, TintModifiers.None, false);
 				}
 			}
+		}
+
+		IEnumerable<IRenderable> ITiledTerrainRenderer.RenderPreview(WorldRenderer wr, TerrainTile tile, WPos origin)
+		{
+			if (!terrainInfo.Templates.TryGetValue(tile.Type, out var template) || !template.Contains(tile.Index))
+				yield break;
+
+			var sprite = tileCache.TileSprite(tile, 0);
+			var palette = wr.Palette(((DefaultTerrainTemplateInfo)template)?.Palette ?? terrainInfo.Palette);
+
+			yield return new SpriteRenderable(sprite, origin, WVec.Zero, 0, palette, 1f, 1f, Vector3.One, TintModifiers.None, false);
 		}
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
@@ -29,7 +30,7 @@ namespace OpenRA.Mods.Common.Traits
 
 	public class RadarPings : ITick
 	{
-		public readonly List<RadarPing> Pings = new List<RadarPing>();
+		public readonly List<RadarPing> Pings = [];
 		readonly RadarPingsInfo info;
 
 		public WPos? LastPingPosition;
@@ -105,11 +106,11 @@ namespace OpenRA.Mods.Common.Traits
 			return true;
 		}
 
-		public IEnumerable<float2> Points(float2 center)
+		public IEnumerable<Vector2> Points(int2 center)
 		{
-			yield return center + radius * float2.FromAngle(angle);
-			yield return center + radius * float2.FromAngle((float)(angle + 2 * Math.PI / 3));
-			yield return center + radius * float2.FromAngle((float)(angle + 4 * Math.PI / 3));
+			yield return center.ToVector2() + radius * OpenRA.Graphics.Util.FromAngle(angle);
+			yield return center.ToVector2() + radius * OpenRA.Graphics.Util.FromAngle((float)(angle + 2 * Math.PI / 3));
+			yield return center.ToVector2() + radius * OpenRA.Graphics.Util.FromAngle((float)(angle + 4 * Math.PI / 3));
 		}
 	}
 }

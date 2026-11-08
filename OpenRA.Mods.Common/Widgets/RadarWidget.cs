@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Primitives;
@@ -22,28 +24,41 @@ namespace OpenRA.Mods.Common.Widgets
 {
 	public sealed class RadarWidget : Widget, IDisposable
 	{
+		public readonly uint ColorFog = Color.FromArgb(128, Color.Black).ToArgb();
+		public readonly uint ColorShroud = Color.Black.ToArgb();
+
 		public string WorldInteractionController = null;
 		public int AnimationLength = 5;
 		public string RadarOnlineSound = null;
 		public string RadarOfflineSound = null;
+		public string SoundUp;
+		public string SoundDown;
 		public Func<bool> IsEnabled = () => true;
 		public Action AfterOpen = () => { };
 		public Action AfterClose = () => { };
 		public Action<float> Animating = _ => { };
 
+		readonly ModData modData;
 		readonly World world;
 		readonly WorldRenderer worldRenderer;
 		readonly RadarPings radarPings;
+		readonly IRadarTerrainLayer[] radarTerrainLayers;
 		readonly bool isRectangularIsometric;
 		readonly int cellWidth;
 		readonly int previewWidth;
 		readonly int previewHeight;
+		readonly string worldSelectCursor = ChromeMetrics.Get<string>("WorldSelectCursor");
 		readonly string worldDefaultCursor = ChromeMetrics.Get<string>("WorldDefaultCursor");
+		readonly GameSettings gameSettings;
+
+		readonly List<(CPos Cell, Color Color)> signatureCellsBuffer = new(64);
 
 		float radarMinimapHeight;
 		int frame;
 		bool hasRadar;
 		bool cachedEnabled;
+		bool isMinimapMoving;
+		MouseButton minimapMoveButton;
 
 		float previewScale = 0;
 		int2 previewOrigin = int2.Zero;
@@ -59,21 +74,20 @@ namespace OpenRA.Mods.Common.Widgets
 		PlayerRadarTerrain playerRadarTerrain;
 		Player currentPlayer;
 
-		public string SoundUp { get; private set; }
-		public string SoundDown { get; private set; }
-
 		[ObjectCreator.UseCtor]
-		public RadarWidget(World world, WorldRenderer worldRenderer)
+		public RadarWidget(ModData modData, World world, WorldRenderer worldRenderer)
 		{
+			this.modData = modData;
 			this.world = world;
 			this.worldRenderer = worldRenderer;
+			gameSettings = Game.Settings.Game;
 
 			radarPings = world.WorldActor.TraitOrDefault<RadarPings>();
-
+			radarTerrainLayers = world.WorldActor.TraitsImplementing<IRadarTerrainLayer>().ToArray();
 			isRectangularIsometric = world.Map.Grid.Type == MapGridType.RectangularIsometric;
 			cellWidth = isRectangularIsometric ? 2 : 1;
-			previewWidth = world.Map.MapSize.X;
-			previewHeight = world.Map.MapSize.Y;
+			previewWidth = world.Map.MapSize.Width;
+			previewHeight = world.Map.MapSize.Height;
 			if (isRectangularIsometric)
 				previewWidth = 2 * previewWidth - 1;
 		}
@@ -94,8 +108,11 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// The four layers are stored in a 2x2 grid within a single texture
 			radarSheet = new Sheet(SheetType.BGRA, new Size(2 * previewWidth, 2 * previewHeight).NextPowerOf2());
-			radarSheet.CreateBuffer();
 			radarData = radarSheet.GetData();
+
+			// Cells outside the projected map bounds never receive shroud updates.
+			// Cover the sheet before revealing the playable cells.
+			MemoryMarshal.Cast<byte, uint>(radarData).Fill(ColorShroud);
 
 			MapBoundsChanged();
 
@@ -125,7 +142,7 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			currentPlayer = player;
 
-			var newShroud = player != null ? player.Shroud : null;
+			var newShroud = player?.Shroud;
 
 			if (newShroud != shroud)
 			{
@@ -142,8 +159,7 @@ namespace OpenRA.Mods.Common.Widgets
 				shroud = newShroud;
 			}
 
-			var newPlayerRadarTerrain =
-				currentPlayer != null ? currentPlayer.PlayerActor.TraitOrDefault<PlayerRadarTerrain>() : null;
+			var newPlayerRadarTerrain = currentPlayer?.PlayerActor.TraitOrDefault<PlayerRadarTerrain>();
 
 			if (forceUpdate || newPlayerRadarTerrain != playerRadarTerrain)
 			{
@@ -152,7 +168,8 @@ namespace OpenRA.Mods.Common.Widgets
 				else
 				{
 					world.Map.Tiles.CellEntryChanged -= CellTerrainColorChanged;
-					world.Map.CustomTerrain.CellEntryChanged -= CellTerrainColorChanged;
+					foreach (var rtl in radarTerrainLayers)
+						rtl.CellEntryChanged -= CellTerrainColorChanged;
 				}
 
 				if (newPlayerRadarTerrain != null)
@@ -160,7 +177,8 @@ namespace OpenRA.Mods.Common.Widgets
 				else
 				{
 					world.Map.Tiles.CellEntryChanged += CellTerrainColorChanged;
-					world.Map.CustomTerrain.CellEntryChanged += CellTerrainColorChanged;
+					foreach (var rtl in radarTerrainLayers)
+						rtl.CellEntryChanged += CellTerrainColorChanged;
 				}
 
 				playerRadarTerrain = newPlayerRadarTerrain;
@@ -173,24 +191,35 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// The minimap is drawn in cell space, so we need to
 			// unproject the bounds to find the extent of the map.
+			// TODO: This attempt to find the map bounds accounting for projected cell heights is bogus.
+			// When a map with height is involved, the bounds may not be optimal, this needs fixing.
 			var projectedLeft = map.Bounds.Left;
 			var projectedRight = map.Bounds.Right;
 			var projectedTop = map.Bounds.Top;
 			var projectedBottom = map.Bounds.Bottom;
 			var top = int.MaxValue;
 			var bottom = int.MinValue;
-			var left = map.Bounds.Left * cellWidth;
-			var right = map.Bounds.Right * cellWidth;
+			var left = projectedLeft * cellWidth;
+			var right = projectedRight * cellWidth;
 
 			for (var x = projectedLeft; x < projectedRight; x++)
 			{
+				// Unprojects check can fail and return an empty list.
+				// This happens when the map tile is outside the map projected space,
+				// e.g. if a tile on the bottom edge has a height > 0.
+				// Guard against this by using the map bounds as a fallback.
 				var allTop = map.Unproject(new PPos(x, projectedTop));
 				var allBottom = map.Unproject(new PPos(x, projectedBottom));
-				if (allTop.Any())
-					top = Math.Min(top, allTop.MinBy(uv => uv.V).V);
 
-				if (allBottom.Any())
-					bottom = Math.Max(bottom, allBottom.MinBy(uv => uv.V).V);
+				if (allTop.Count > 0)
+					top = Math.Min(top, allTop.MinBy(uv => uv.V).V);
+				else
+					top = map.Bounds.Top;
+
+				if (allBottom.Count > 0)
+					bottom = Math.Max(bottom, allBottom.MaxBy(uv => uv.V).V);
+				else
+					bottom = map.Bounds.Bottom;
 			}
 
 			var b = Rectangle.FromLTRB(left, top, right, bottom);
@@ -206,9 +235,8 @@ namespace OpenRA.Mods.Common.Widgets
 
 		void UpdateTerrainColor(MPos uv)
 		{
-			var colorPair = playerRadarTerrain != null && playerRadarTerrain.IsInitialized ? playerRadarTerrain[uv] : PlayerRadarTerrain.GetColor(world.Map, uv);
-			var leftColor = colorPair.Left;
-			var rightColor = colorPair.Right;
+			var (leftColor, rightColor) = playerRadarTerrain != null && playerRadarTerrain.IsInitialized ?
+				playerRadarTerrain[uv] : PlayerRadarTerrain.GetColor(world.Map, radarTerrainLayers, uv);
 
 			var stride = radarSheet.Size.Width;
 
@@ -216,7 +244,7 @@ namespace OpenRA.Mods.Common.Widgets
 			{
 				fixed (byte* colorBytes = &radarData[0])
 				{
-					var colors = (int*)colorBytes;
+					var colors = (uint*)colorBytes;
 					if (isRectangularIsometric)
 					{
 						// Odd rows are shifted right by 1px
@@ -235,18 +263,19 @@ namespace OpenRA.Mods.Common.Widgets
 
 		void UpdateShroudCell(PPos puv)
 		{
-			var color = 0;
-			if (!currentPlayer.Shroud.IsExplored(puv))
-				color = Color.Black.ToArgb();
-			else if (!currentPlayer.Shroud.IsVisible(puv))
-				color = Color.FromArgb(128, Color.Black).ToArgb();
+			var color = 0u;
+			var cv = currentPlayer.Shroud.GetVisibility(puv);
+			if (!cv.HasFlag(Shroud.CellVisibility.Explored))
+				color = ColorShroud;
+			else if (!cv.HasFlag(Shroud.CellVisibility.Visible))
+				color = ColorFog;
 
 			var stride = radarSheet.Size.Width;
 			unsafe
 			{
 				fixed (byte* colorBytes = &radarData[0])
 				{
-					var colors = (int*)colorBytes;
+					var colors = (uint*)colorBytes;
 					foreach (var iuv in world.Map.Unproject(puv))
 					{
 						if (isRectangularIsometric)
@@ -271,22 +300,27 @@ namespace OpenRA.Mods.Common.Widgets
 			if (world == null || !hasRadar)
 				return null;
 
-			var cell = MinimapPixelToCell(pos);
-			var worldPixel = worldRenderer.ScreenPxPosition(world.Map.CenterOfCell(cell));
-			var location = worldRenderer.Viewport.WorldToViewPx(worldPixel);
+			var worldPos = MinimapPixelToWorldCoords(pos);
+			var wpos = new WPos((int)worldPos.X, (int)worldPos.Y, 0);
+			var cell = world.Map.CellContaining(wpos);
 
+			var worldPixel = worldRenderer.ScreenPxPosition(wpos);
+			var location = worldRenderer.Viewport.WorldToViewPx(worldPixel);
 			var mi = new MouseInput
 			{
 				Location = location,
-				Button = Game.Settings.Game.MouseButtonPreference.Action,
+				Button = world.OrderGenerator.ActionButton,
 				Modifiers = Game.GetModifierKeys()
 			};
 
 			var cursor = world.OrderGenerator.GetCursor(world, cell, worldPixel, mi);
-			if (cursor == null)
-				return worldDefaultCursor;
 
-			return Game.ModData.CursorProvider.HasCursorSequence(cursor + "-minimap") ? cursor + "-minimap" : cursor;
+			// We can't select through the minimap in Mouse Control Types other than Classic,
+			// as they move the minimap on left click, so don't show the selection cursor for them
+			if (cursor == null || (gameSettings.MouseControlStyle != MouseControlStyle.Classic && cursor == worldSelectCursor))
+				cursor = worldDefaultCursor;
+
+			return modData.Cursors.ContainsKey(cursor + "-minimap") ? cursor + "-minimap" : cursor;
 		}
 
 		public override bool HandleMouseInput(MouseInput mi)
@@ -297,33 +331,37 @@ namespace OpenRA.Mods.Common.Widgets
 			if (!hasRadar)
 				return true;
 
-			var cell = MinimapPixelToCell(mi.Location);
-			var pos = world.Map.CenterOfCell(cell);
-			if ((mi.Event == MouseInputEvent.Down || mi.Event == MouseInputEvent.Move)
-				&& mi.Button == Game.Settings.Game.MouseButtonPreference.Cancel)
+			var worldCoords = MinimapPixelToWorldCoords(mi.Location);
+			if ((mi.Event == MouseInputEvent.Down && mi.Button != world.OrderGenerator.ActionButton) ||
+				(mi.Event == MouseInputEvent.Move && isMinimapMoving && mi.Button == minimapMoveButton))
 			{
-				worldRenderer.Viewport.Center(pos);
+				worldRenderer.Viewport.Center(worldCoords);
+				isMinimapMoving = true;
+				minimapMoveButton = mi.Button;
 			}
-
-			if (mi.Event == MouseInputEvent.Down && mi.Button == Game.Settings.Game.MouseButtonPreference.Action)
+			else if (mi.Event == MouseInputEvent.Down && WorldInteractionController != null)
 			{
+				var wpos = new WPos((int)worldCoords.X, (int)worldCoords.Y, 0);
+
 				// fake a mousedown/mouseup here
-				var location = worldRenderer.Viewport.WorldToViewPx(worldRenderer.ScreenPxPosition(pos));
+				var location = worldRenderer.Viewport.WorldToViewPx(worldRenderer.ScreenPxPosition(wpos));
 				var fakemi = new MouseInput
 				{
 					Event = MouseInputEvent.Down,
-					Button = Game.Settings.Game.MouseButtonPreference.Action,
+					Button = mi.Button,
 					Modifiers = mi.Modifiers,
-					Location = location
+					Location = location,
 				};
 
-				if (WorldInteractionController != null)
-				{
-					var controller = Ui.Root.Get<WorldInteractionControllerWidget>(WorldInteractionController);
-					controller.HandleMouseInput(fakemi);
-					fakemi.Event = MouseInputEvent.Up;
-					controller.HandleMouseInput(fakemi);
-				}
+				var controller = Ui.Root.Get<WorldInteractionControllerWidget>(WorldInteractionController);
+				controller.HandleMouseInput(fakemi);
+				fakemi.Event = MouseInputEvent.Up;
+				controller.HandleMouseInput(fakemi);
+			}
+			else if (mi.Event == MouseInputEvent.Up && mi.Button == minimapMoveButton)
+			{
+				isMinimapMoving = false;
+				minimapMoveButton = MouseButton.None;
 			}
 
 			return true;
@@ -336,8 +374,8 @@ namespace OpenRA.Mods.Common.Widgets
 
 			radarSheet.CommitBufferedData();
 
-			var o = new float2(mapRect.Location.X, mapRect.Location.Y + world.Map.Bounds.Height * previewScale * (1 - radarMinimapHeight) / 2);
-			var s = new float2(mapRect.Size.Width, mapRect.Size.Height * radarMinimapHeight);
+			var o = new Vector2(mapRect.Location.X, mapRect.Location.Y + world.Map.Bounds.Height * previewScale * (1 - radarMinimapHeight) / 2);
+			var s = new Vector2(mapRect.Size.Width, mapRect.Size.Height * radarMinimapHeight);
 
 			WidgetUtils.DrawSprite(terrainSprite, o, s);
 			WidgetUtils.DrawSprite(actorSprite, o, s);
@@ -353,7 +391,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 				Game.Renderer.EnableScissor(mapRect);
 				DrawRadarPings();
-				Game.Renderer.RgbaColorRenderer.DrawRect(tl, br, 1, Color.White);
+				Game.Renderer.RgbaColorRenderer.DrawRect(tl.ToVector3(), br.ToVector3(), 1, Color.White);
 				Game.Renderer.DisableScissor();
 			}
 		}
@@ -384,42 +422,45 @@ namespace OpenRA.Mods.Common.Widgets
 			{
 				// The actor layer is updated every tick
 				var stride = radarSheet.Size.Width;
-				Array.Clear(radarData, 4 * actorSprite.Bounds.Top * stride, 4 * actorSprite.Bounds.Height * stride);
-
-				var cells = new List<(CPos Cell, Color Color)>();
+				radarData.AsSpan(4 * actorSprite.Bounds.Top * stride, 4 * actorSprite.Bounds.Height * stride).Clear();
 
 				unsafe
 				{
 					fixed (byte* colorBytes = &radarData[0])
 					{
-						var colors = (int*)colorBytes;
+						var colors = (uint*)colorBytes;
 
 						foreach (var t in world.ActorsWithTrait<IRadarSignature>())
 						{
 							if (!t.Actor.IsInWorld || world.FogObscures(t.Actor))
 								continue;
 
-							cells.Clear();
-							t.Trait.PopulateRadarSignatureCells(t.Actor, cells);
-							foreach (var cell in cells)
+							signatureCellsBuffer.Clear();
+							t.Trait.PopulateRadarSignatureCells(t.Actor, signatureCellsBuffer);
+
+							foreach (var cell in signatureCellsBuffer)
 							{
 								if (!world.Map.Contains(cell.Cell))
 									continue;
 
 								var uv = cell.Cell.ToMPos(world.Map.Grid.Type);
 								var color = cell.Color.ToArgb();
+
+								var rowOffset = (uv.V + previewHeight) * stride;
 								if (isRectangularIsometric)
 								{
 									// Odd rows are shifted right by 1px
 									var dx = uv.V & 1;
-									if (uv.U + dx > 0)
-										colors[(uv.V + previewHeight) * stride + 2 * uv.U + dx - 1] = color;
+									var u2 = 2 * uv.U;
 
-									if (2 * uv.U + dx < stride)
-										colors[(uv.V + previewHeight) * stride + 2 * uv.U + dx] = color;
+									if (uv.U + dx > 0)
+										colors[rowOffset + u2 + dx - 1] = color;
+
+									if (u2 + dx < stride)
+										colors[rowOffset + u2 + dx] = color;
 								}
 								else
-									colors[(uv.V + previewHeight) * stride + uv.U] = color;
+									colors[rowOffset + uv.U] = color;
 							}
 						}
 					}
@@ -432,9 +473,10 @@ namespace OpenRA.Mods.Common.Widgets
 				return;
 
 			frame += enabled ? 1 : -1;
-			radarMinimapHeight = float2.Lerp(0, 1, (float)frame / AnimationLength);
 
-			Animating(frame * 1f / AnimationLength);
+			var animationProgress = (float)frame / AnimationLength;
+			radarMinimapHeight = animationProgress;
+			Animating(animationProgress);
 
 			// Update map rectangle for event handling
 			var ro = RenderOrigin;
@@ -458,16 +500,26 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// Odd rows are shifted right by 1px
 			if (isRectangularIsometric && (uv.V & 1) == 1)
-				dx += 1;
+				dx++;
 
 			return new int2(mapRect.X + dx, mapRect.Y + dy);
 		}
 
-		CPos MinimapPixelToCell(int2 p)
+		Vector2 MinimapPixelToWorldCoords(int2 pixel)
 		{
-			var u = (int)((p.X - mapRect.X) / (previewScale * cellWidth)) + world.Map.Bounds.Left;
-			var v = (int)((p.Y - mapRect.Y) / previewScale) + world.Map.Bounds.Top;
-			return new MPos(u, v).ToCPos(world.Map);
+			var u = (pixel.X - mapRect.X) / (previewScale * cellWidth) + world.Map.Bounds.Left;
+			var v = (pixel.Y - mapRect.Y) / previewScale + world.Map.Bounds.Top;
+
+			if (world.Map.Grid.Type == MapGridType.Rectangular)
+			{
+				return new Vector2(1024 * u + 512, 1024 * v + 512);
+			}
+			else
+			{
+				var y = v / 2.0f - u;
+				var x = v - y;
+				return new Vector2(724 * (x - y), 724 * (x + y));
+			}
 		}
 
 		public override void Removed()

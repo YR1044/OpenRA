@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using OpenRA.Effects;
 using OpenRA.Primitives;
 using OpenRA.Traits;
@@ -21,56 +23,71 @@ namespace OpenRA.Graphics
 	public sealed class WorldRenderer : IDisposable
 	{
 		public static readonly Func<IRenderable, int> RenderableZPositionComparisonKey =
-			r => ZPosition(r.Pos, r.ZOffset);
+			r => r.Pos.Y + r.Pos.Z + r.ZOffset;
 
 		public readonly Size TileSize;
 		public readonly int TileScale;
 		public readonly World World;
-		public Viewport Viewport { get; private set; }
+		public Viewport Viewport { get; }
 		public readonly ITerrainLighting TerrainLighting;
 
 		public event Action PaletteInvalidated = null;
 
-		readonly HashSet<Actor> onScreenActors = new HashSet<Actor>();
-		readonly HardwarePalette palette = new HardwarePalette();
-		readonly Dictionary<string, PaletteReference> palettes = new Dictionary<string, PaletteReference>();
+		readonly HashSet<Actor> onScreenActors = [];
+		readonly HardwarePalette palette = new();
+		readonly Dictionary<string, PaletteReference> palettes = [];
 		readonly IRenderTerrain terrainRenderer;
 		readonly Lazy<DebugVisualizations> debugVis;
 		readonly Func<string, PaletteReference> createPaletteReference;
 		readonly bool enableDepthBuffer;
 
-		readonly List<IFinalizedRenderable> preparedRenderables = new List<IFinalizedRenderable>();
-		readonly List<IFinalizedRenderable> preparedOverlayRenderables = new List<IFinalizedRenderable>();
-		readonly List<IFinalizedRenderable> preparedAnnotationRenderables = new List<IFinalizedRenderable>();
+		readonly List<IFinalizedRenderable> preparedRenderables = [];
+		readonly List<IFinalizedRenderable> preparedOverlayRenderables = [];
+		readonly List<IFinalizedRenderable> preparedAnnotationRenderables = [];
 
-		readonly List<IRenderable> renderablesBuffer = new List<IRenderable>();
-
-		bool lastDepthPreviewEnabled;
+		readonly List<IRenderable> renderablesBuffer = [];
+		readonly IRenderer[] renderers;
+		readonly IRenderPostProcessPass[] postProcessPasses;
+		long[] renderablesKeysBuffer = [];
 
 		internal WorldRenderer(ModData modData, World world)
 		{
 			World = world;
-			TileSize = World.Map.Grid.TileSize;
-			TileScale = World.Map.Grid.Type == MapGridType.RectangularIsometric ? 1448 : 1024;
+			TileSize = World.Map.Rules.TerrainInfo.TileSize;
+			TileScale = World.Map.Grid.TileScale;
 			Viewport = new Viewport(this, world.Map);
 
 			createPaletteReference = CreatePaletteReference;
 
-			var mapGrid = modData.Manifest.Get<MapGrid>();
+			var mapGrid = modData.GetOrCreate<MapGrid>();
 			enableDepthBuffer = mapGrid.EnableDepthBuffer;
 
 			foreach (var pal in world.TraitDict.ActorsWithTrait<ILoadsPalettes>())
 				pal.Trait.LoadPalettes(this);
 
-			foreach (var p in world.Players)
-				UpdatePalettesForPlayer(p.InternalName, p.Color, false);
+			Player.SetupRelationshipColors(world.Players, world.LocalPlayer, this, true);
 
 			palette.Initialize();
 
 			TerrainLighting = world.WorldActor.TraitOrDefault<ITerrainLighting>();
+			renderers = world.WorldActor.TraitsImplementing<IRenderer>().ToArray();
 			terrainRenderer = world.WorldActor.TraitOrDefault<IRenderTerrain>();
 
-			debugVis = Exts.Lazy(() => world.WorldActor.TraitOrDefault<DebugVisualizations>());
+			debugVis = Exts.Lazy(world.WorldActor.TraitOrDefault<DebugVisualizations>);
+
+			postProcessPasses = world.WorldActor.TraitsImplementing<IRenderPostProcessPass>().ToArray();
+		}
+
+		public void BeginFrame()
+		{
+			foreach (var r in renderers)
+				r.BeginFrame();
+		}
+
+		public void EndFrame()
+		{
+			foreach (var r in renderers)
+				r.EndFrame();
 		}
 
 		public void UpdatePalettesForPlayer(string internalName, Color color, bool replaceExisting)
@@ -89,7 +106,7 @@ namespace OpenRA.Graphics
 		{
 			// HACK: This is working around the fact that palettes are defined on traits rather than sequences
 			// and can be removed once this has been fixed.
-			return name == null ? null : palettes.GetOrAdd(name, createPaletteReference);
+			return string.IsNullOrEmpty(name) ? null : palettes.GetOrAdd(name, createPaletteReference);
 		}
 
 		public void AddPalette(string name, ImmutablePalette pal, bool allowModifiers = false, bool allowOverwrite = false)
@@ -111,13 +128,13 @@ namespace OpenRA.Graphics
 			palette.ReplacePalette(name, pal);
 
 			// Update cached PlayerReference if one exists
-			if (palettes.ContainsKey(name))
-				palettes[name].Palette = pal;
+			if (palettes.TryGetValue(name, out var paletteReference))
+				paletteReference.Palette = pal;
 		}
 
-		public void SetPaletteColorShift(string name, float hueOffset, float satOffset, float minHue, float maxHue)
+		public void SetPaletteColorShift(string name, float hueOffset, float satOffset, float valueModifier, float minHue, float maxHue)
 		{
-			palette.SetColorShift(name, hueOffset, satOffset, minHue, maxHue);
+			palette.SetColorShift(name, hueOffset, satOffset, valueModifier, minHue, maxHue);
 		}
 
 		// PERF: Avoid LINQ.
@@ -143,7 +160,14 @@ namespace OpenRA.Graphics
 				renderablesBuffer.AddRange(e.Render(this));
 
 			// Renderables must be ordered using a stable sorting algorithm to avoid flickering artefacts
-			foreach (var renderable in renderablesBuffer.OrderBy(RenderableZPositionComparisonKey))
+			if (renderablesKeysBuffer.Length < renderablesBuffer.Count)
+				renderablesKeysBuffer = new long[Exts.NextPowerOf2(renderablesBuffer.Count)];
+			for (var i = 0; i < renderablesBuffer.Count; i++)
+				renderablesKeysBuffer[i] = ((long)RenderableZPositionComparisonKey(renderablesBuffer[i]) << 32) + i;
+			var keys = renderablesKeysBuffer.AsSpan(0, renderablesBuffer.Count);
+			keys.Sort(CollectionsMarshal.AsSpan(renderablesBuffer));
+
+			foreach (var renderable in renderablesBuffer)
 				preparedRenderables.Add(renderable.PrepareRender(this));
 
 			// PERF: Reuse collection to avoid allocations.
@@ -153,14 +177,14 @@ namespace OpenRA.Graphics
 		// PERF: Avoid LINQ.
 		void GenerateOverlayRenderables()
 		{
-			foreach (var a in World.ActorsWithTrait<IRenderAboveShroud>())
+			World.ApplyToActorsWithTrait<IRenderAboveShroud>((actor, trait) =>
 			{
-				if (!a.Actor.IsInWorld || a.Actor.Disposed || (a.Trait.SpatiallyPartitionable && !onScreenActors.Contains(a.Actor)))
-					continue;
+				if (!actor.IsInWorld || actor.Disposed || (trait.SpatiallyPartitionable && !onScreenActors.Contains(actor)))
+					return;
 
-				foreach (var renderable in a.Trait.RenderAboveShroud(a.Actor, this))
+				foreach (var renderable in trait.RenderAboveShroud(actor, this))
 					preparedOverlayRenderables.Add(renderable.PrepareRender(this));
-			}
+			});
 
 			foreach (var a in World.Selection.Actors)
 			{
@@ -179,8 +203,7 @@ namespace OpenRA.Graphics
 
 			foreach (var e in World.Effects)
 			{
-				var ea = e as IEffectAboveShroud;
-				if (ea == null)
+				if (e is not IEffectAboveShroud ea)
 					continue;
 
 				foreach (var renderable in ea.RenderAboveShroud(this))
@@ -195,14 +218,14 @@ namespace OpenRA.Graphics
 		// PERF: Avoid LINQ.
 		void GenerateAnnotationRenderables()
 		{
-			foreach (var a in World.ActorsWithTrait<IRenderAnnotations>())
+			World.ApplyToActorsWithTrait<IRenderAnnotations>((actor, trait) =>
 			{
-				if (!a.Actor.IsInWorld || a.Actor.Disposed || (a.Trait.SpatiallyPartitionable && !onScreenActors.Contains(a.Actor)))
-					continue;
+				if (!actor.IsInWorld || actor.Disposed || (trait.SpatiallyPartitionable && !onScreenActors.Contains(actor)))
+					return;
 
-				foreach (var renderAnnotation in a.Trait.RenderAnnotations(a.Actor, this))
+				foreach (var renderAnnotation in trait.RenderAnnotations(actor, this))
 					preparedAnnotationRenderables.Add(renderAnnotation.PrepareRender(this));
-			}
+			});
 
 			foreach (var a in World.Selection.Actors)
 			{
@@ -221,8 +244,7 @@ namespace OpenRA.Graphics
 
 			foreach (var e in World.Effects)
 			{
-				var ea = e as IEffectAnnotation;
-				if (ea == null)
+				if (e is not IEffectAnnotation ea)
 					continue;
 
 				foreach (var renderAnnotation in ea.RenderAnnotation(this))
@@ -256,11 +278,7 @@ namespace OpenRA.Graphics
 			if (World.WorldActor.Disposed)
 				return;
 
-			if (debugVis.Value != null && lastDepthPreviewEnabled != debugVis.Value.DepthBuffer)
-			{
-				lastDepthPreviewEnabled = debugVis.Value.DepthBuffer;
-				Game.Renderer.WorldSpriteRenderer.SetDepthPreviewEnabled(lastDepthPreviewEnabled);
-			}
+			debugVis.Value?.UpdateDepthBuffer();
 
 			var bounds = Viewport.GetScissorBounds(World.Type != WorldType.Editor);
 			Game.Renderer.EnableScissor(bounds);
@@ -278,15 +296,20 @@ namespace OpenRA.Graphics
 			if (enableDepthBuffer)
 				Game.Renderer.ClearDepthBuffer();
 
-			foreach (var a in World.ActorsWithTrait<IRenderAboveWorld>())
-				if (a.Actor.IsInWorld && !a.Actor.Disposed)
-					a.Trait.RenderAboveWorld(a.Actor, this);
+			ApplyPostProcessing(PostProcessPassType.AfterActors);
+
+			World.ApplyToActorsWithTrait<IRenderAboveWorld>((actor, trait) =>
+			{
+				if (actor.IsInWorld && !actor.Disposed)
+					trait.RenderAboveWorld(actor, this);
+			});
 
 			if (enableDepthBuffer)
 				Game.Renderer.ClearDepthBuffer();
 
-			foreach (var a in World.ActorsWithTrait<IRenderShroud>())
-				a.Trait.RenderShroud(this);
+			ApplyPostProcessing(PostProcessPassType.AfterWorld);
+
+			World.ApplyToActorsWithTrait<IRenderShroud>((actor, trait) => trait.RenderShroud(this));
 
 			if (enableDepthBuffer)
 				Game.Renderer.Context.DisableDepthBuffer();
@@ -299,7 +322,21 @@ namespace OpenRA.Graphics
 				foreach (var r in g)
 					r.Render(this);
 
+			ApplyPostProcessing(PostProcessPassType.AfterShroud);
+
 			Game.Renderer.Flush();
+		}
+
+		void ApplyPostProcessing(PostProcessPassType type)
+		{
+			foreach (var pass in postProcessPasses)
+			{
+				if (pass.Type != type || !pass.Enabled)
+					continue;
+
+				Game.Renderer.Flush();
+				pass.Draw(this);
+			}
 		}
 
 		public void DrawAnnotations()
@@ -326,23 +363,25 @@ namespace OpenRA.Graphics
 			{
 				foreach (var r in World.ScreenMap.RenderBounds(World.RenderPlayer))
 				{
-					var tl = Viewport.WorldToViewPx(new float2(r.Left, r.Top));
-					var br = Viewport.WorldToViewPx(new float2(r.Right, r.Bottom));
+					var tl = Viewport.WorldToViewPx(new Vector3(r.Left, r.Top, 0)).ToVector3();
+					var br = Viewport.WorldToViewPx(new Vector3(r.Right, r.Bottom, 0)).ToVector3();
 					Game.Renderer.RgbaColorRenderer.DrawRect(tl, br, 1, Color.MediumSpringGreen);
 				}
 
 				foreach (var b in World.ScreenMap.MouseBounds(World.RenderPlayer))
 				{
-					var points = new float2[b.Vertices.Length];
+					var points = new Vector2[b.Vertices.Length];
 					for (var index = 0; index < b.Vertices.Length; index++)
 					{
 						var vertex = b.Vertices[index];
-						points[index] = Viewport.WorldToViewPx(vertex).ToFloat2();
+						points[index] = Viewport.WorldToViewPx(vertex).ToVector2();
 					}
 
 					Game.Renderer.RgbaColorRenderer.DrawPolygon(points, 1, Color.OrangeRed);
 				}
 			}
+
+			ApplyPostProcessing(PostProcessPassType.AfterAnnotations);
 
 			Game.Renderer.Flush();
 
@@ -357,16 +396,32 @@ namespace OpenRA.Graphics
 			Game.Renderer.SetPalette(palette);
 		}
 
-		// Conversion between world and screen coordinates
-		public float2 ScreenPosition(WPos pos)
+		/// <summary>
+		/// Converts a world position to a screen position.
+		/// </summary>
+		public Vector2 ScreenPosition(WPos pos)
 		{
-			return new float2((float)TileSize.Width * pos.X / TileScale, (float)TileSize.Height * (pos.Y - pos.Z) / TileScale);
+			return new Vector2((float)TileSize.Width * pos.X / TileScale, (float)TileSize.Height * (pos.Y - pos.Z) / TileScale);
 		}
 
-		public float3 Screen3DPosition(WPos pos)
+		/// <summary>
+		/// Converts a world position to a screen position.
+		/// </summary>
+		public Vector2 ScreenPosition(Vector2 pos)
 		{
-			var z = ZPosition(pos, 0) * (float)TileSize.Height / TileScale;
-			return new float3((float)TileSize.Width * pos.X / TileScale, (float)TileSize.Height * (pos.Y - pos.Z) / TileScale, z);
+			return new Vector2(TileSize.Width * pos.X / TileScale, TileSize.Height * pos.Y / TileScale);
+		}
+
+		public Vector3 Screen3DPosition(WPos pos)
+		{
+			// The projection from world coordinates to screen coordinates has
+			// a non-obvious relationship between the y and z coordinates:
+			// * A flat surface with constant y (e.g. a vertical wall) in world coordinates
+			//   transforms into a flat surface with constant z (depth) in screen coordinates.
+			// * Increasing the world y coordinate increases screen y and z coordinates equally.
+			// * Increases the world z coordinate decreases screen y but doesn't change screen z.
+			var z = pos.Y * (float)TileSize.Height / TileScale;
+			return new Vector3((float)TileSize.Width * pos.X / TileScale, (float)TileSize.Height * (pos.Y - pos.Z) / TileScale, z);
 		}
 
 		public int2 ScreenPxPosition(WPos pos)
@@ -376,17 +431,17 @@ namespace OpenRA.Graphics
 			return new int2((int)Math.Round(px.X), (int)Math.Round(px.Y));
 		}
 
-		public float3 Screen3DPxPosition(WPos pos)
+		public Vector3 Screen3DPxPosition(WPos pos)
 		{
 			// Round to nearest pixel
 			var px = Screen3DPosition(pos);
-			return new float3((float)Math.Round(px.X), (float)Math.Round(px.Y), px.Z);
+			return new Vector3((float)Math.Round(px.X), (float)Math.Round(px.Y), px.Z);
 		}
 
 		// For scaling vectors to pixel sizes in the model renderer
-		public float3 ScreenVectorComponents(in WVec vec)
+		public Vector3 ScreenVectorComponents(in WVec vec)
 		{
-			return new float3(
+			return new Vector3(
 				(float)TileSize.Width * vec.X / TileScale,
 				(float)TileSize.Height * (vec.Y - vec.Z) / TileScale,
 				(float)TileSize.Height * vec.Z / TileScale);
@@ -396,7 +451,7 @@ namespace OpenRA.Graphics
 		public float[] ScreenVector(in WVec vec)
 		{
 			var xyz = ScreenVectorComponents(vec);
-			return new[] { xyz.X, xyz.Y, xyz.Z, 1f };
+			return [xyz.X, xyz.Y, xyz.Z, 1f];
 		}
 
 		public int2 ScreenPxOffset(in WVec vec)
@@ -404,16 +459,6 @@ namespace OpenRA.Graphics
 			// Round to nearest pixel
 			var xyz = ScreenVectorComponents(vec);
 			return new int2((int)Math.Round(xyz.X), (int)Math.Round(xyz.Y));
-		}
-
-		public float ScreenZPosition(WPos pos, int offset)
-		{
-			return ZPosition(pos, offset) * (float)TileSize.Height / TileScale;
-		}
-
-		static int ZPosition(WPos pos, int offset)
-		{
-			return pos.Y + pos.Z + offset;
 		}
 
 		/// <summary>

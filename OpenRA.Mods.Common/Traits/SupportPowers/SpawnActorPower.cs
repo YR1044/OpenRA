@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,12 +10,11 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Immutable;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Activities;
 using OpenRA.Mods.Common.Effects;
 using OpenRA.Mods.Common.Orders;
-using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
@@ -32,7 +31,7 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly int LifeTime = 250;
 
 		[Desc("Only allow this to be spawned on this terrain.")]
-		public readonly string[] Terrain = null;
+		public readonly ImmutableArray<string> Terrain = default;
 
 		public readonly bool AllowUnderShroud = true;
 
@@ -43,11 +42,10 @@ namespace OpenRA.Mods.Common.Traits
 		[SequenceReference(nameof(EffectImage))]
 		public readonly string EffectSequence = null;
 
-		[PaletteReference]
+		[PaletteReference(nameof(EffectPaletteIsPlayerPalette))]
 		public readonly string EffectPalette = null;
 
-		[Desc("Cursor to display when the location is unsuitable.")]
-		public readonly string BlockedCursor = "move-blocked";
+		public readonly bool EffectPaletteIsPlayerPalette = false;
 
 		public override object Create(ActorInitializer init) { return new SpawnActorPower(init.Self, this); }
 	}
@@ -74,13 +72,19 @@ namespace OpenRA.Mods.Common.Traits
 				Game.Sound.Play(SoundType.World, info.DeploySound, position);
 
 				if (!string.IsNullOrEmpty(info.EffectSequence) && !string.IsNullOrEmpty(info.EffectPalette))
-					w.Add(new SpriteEffect(position, w, info.EffectImage, info.EffectSequence, info.EffectPalette));
-
-				var actor = w.CreateActor(info.Actor, new TypeDictionary
 				{
+					var palette = info.EffectPalette;
+					if (info.EffectPaletteIsPlayerPalette)
+						palette += self.Owner.InternalName;
+
+					w.Add(new SpriteEffect(position, w, info.EffectImage, info.EffectSequence, palette));
+				}
+
+				var actor = w.CreateActor(info.Actor,
+				[
 					new LocationInit(cell),
 					new OwnerInit(self.Owner),
-				});
+				]);
 
 				if (info.LifeTime > -1)
 				{
@@ -95,7 +99,10 @@ namespace OpenRA.Mods.Common.Traits
 			Game.Sound.PlayToPlayer(SoundType.UI, manager.Self.Owner, Info.SelectTargetSound);
 			Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Speech",
 				Info.SelectTargetSpeechNotification, self.Owner.Faction.InternalName);
-			self.World.OrderGenerator = new SelectSpawnActorPowerTarget(order, manager, this, MouseButton.Left);
+
+			TextNotificationsManager.AddTransientLine(manager.Self.Owner, Info.SelectTargetTextNotification);
+
+			self.World.OrderGenerator = new SelectSpawnActorPowerTarget(order, manager, this);
 		}
 
 		public bool Validate(World world, SpawnActorPowerInfo info, CPos cell)
@@ -103,7 +110,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (!world.Map.Contains(cell))
 				return false;
 
-			if (!info.AllowUnderShroud && world.ShroudObscures(cell))
+			if (!info.AllowUnderShroud && !Self.Owner.Shroud.IsExplored(cell))
 				return false;
 
 			if (info.Terrain != null && !info.Terrain.Contains(world.Map.GetTerrainInfo(cell).Type))
@@ -115,24 +122,19 @@ namespace OpenRA.Mods.Common.Traits
 
 	public class SelectSpawnActorPowerTarget : OrderGenerator
 	{
+		protected override MouseActionType ActionType => MouseActionType.SupportPower;
 		readonly SpawnActorPower power;
 		readonly SpawnActorPowerInfo info;
 		readonly SupportPowerManager manager;
-		readonly string order;
-		readonly MouseButton expectedButton;
 
-		public string OrderKey { get { return order; } }
+		public string OrderKey { get; }
 
-		public SelectSpawnActorPowerTarget(string order, SupportPowerManager manager, SpawnActorPower power, MouseButton button)
+		public SelectSpawnActorPowerTarget(string order, SupportPowerManager manager, SpawnActorPower power)
+			: base(manager.Self.World)
 		{
-			// Clear selection if using Left-Click Orders
-			if (Game.Settings.Game.UseClassicMouseStyle)
-				manager.Self.World.Selection.Clear();
-
 			this.manager = manager;
 			this.power = power;
-			this.order = order;
-			expectedButton = button;
+			OrderKey = order;
 
 			info = (SpawnActorPowerInfo)power.Info;
 		}
@@ -140,18 +142,14 @@ namespace OpenRA.Mods.Common.Traits
 		protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
 			world.CancelInputMode();
-
-			if (!power.Validate(world, info, cell))
-				yield break;
-
-			if (mi.Button == expectedButton)
-				yield return new Order(order, manager.Self, Target.FromCell(world, cell), false) { SuppressVisualFeedback = true };
+			if (power.Validate(world, info, cell))
+				yield return new Order(OrderKey, manager.Self, Target.FromCell(world, cell), false) { SuppressVisualFeedback = true };
 		}
 
 		protected override void Tick(World world)
 		{
 			// Cancel the OG if we can't use the power
-			if (!manager.Powers.ContainsKey(order))
+			if (!manager.Powers.ContainsKey(OrderKey))
 				world.CancelInputMode();
 		}
 

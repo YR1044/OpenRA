@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Graphics;
@@ -24,7 +25,7 @@ namespace OpenRA.Mods.Common.HitShapes
 		public WDist OuterRadius { get; private set; }
 
 		[FieldLoader.Require]
-		public readonly int2[] Points;
+		public readonly ImmutableArray<int2> Points;
 
 		[Desc("Defines the top offset relative to the actor's center.")]
 		public readonly int VerticalTopOffset = 0;
@@ -42,7 +43,7 @@ namespace OpenRA.Mods.Common.HitShapes
 
 		public PolygonShape() { }
 
-		public PolygonShape(int2[] points) { Points = points; }
+		public PolygonShape(ImmutableArray<int2> points) { Points = points; }
 
 		public void Initialize()
 		{
@@ -53,7 +54,7 @@ namespace OpenRA.Mods.Common.HitShapes
 			combatOverlayVertsTop = Points.Select(p => new WVec(p.X, p.Y, VerticalTopOffset)).ToArray();
 			combatOverlayVertsBottom = Points.Select(p => new WVec(p.X, p.Y, VerticalBottomOffset)).ToArray();
 			squares = new int[Points.Length];
-			squares[0] = (Points[0] - Points[Points.Length - 1]).LengthSquared;
+			squares[0] = (Points[0] - Points[^1]).LengthSquared;
 			for (var i = 1; i < Points.Length; i++)
 				squares[i] = (Points[i] - Points[i - 1]).LengthSquared;
 		}
@@ -89,7 +90,7 @@ namespace OpenRA.Mods.Common.HitShapes
 			if (Points.PolygonContains(p))
 				return new WDist(z);
 
-			var min2 = DistanceSquaredFromLineSegment(p, Points[Points.Length - 1], Points[0], squares[0]);
+			var min2 = DistanceSquaredFromLineSegment(p, Points[^1], Points[0], squares[0]);
 			for (var i = 1; i < Points.Length; i++)
 			{
 				var d2 = DistanceSquaredFromLineSegment(p, Points[i - 1], Points[i], squares[i]);

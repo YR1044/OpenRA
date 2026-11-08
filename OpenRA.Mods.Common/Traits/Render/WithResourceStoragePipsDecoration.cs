@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -21,7 +21,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 		[Desc("Number of pips to display how filled unit is.")]
 		public readonly int PipCount = 0;
 
-		[Desc("If non-zero, override the spacing between adjacing pips.")]
+		[Desc("If non-zero, override the spacing between adjacent pips.")]
 		public readonly int2 PipStride = int2.Zero;
 
 		[Desc("Image that defines the pip sequences.")]
@@ -58,14 +58,14 @@ namespace OpenRA.Mods.Common.Traits.Render
 			pips.PlayRepeating(Info.EmptySequence);
 
 			var palette = wr.Palette(Info.Palette);
-			var pipSize = pips.Image.Size.XY.ToInt2();
+			var pipSize = int2.FromVector(pips.Image.Size);
 			var pipStride = Info.PipStride != int2.Zero ? Info.PipStride : new int2(pipSize.X, 0);
 
 			screenPos -= pipSize / 2;
 			for (var i = 0; i < Info.PipCount; i++)
 			{
 				pips.PlayRepeating(player.Resources * Info.PipCount > i * player.ResourceCapacity ? Info.FullSequence : Info.EmptySequence);
-				yield return new UISpriteRenderable(pips.Image, self.CenterPosition, screenPos, 0, palette);
+				yield return new UISpriteRenderable(pips.Image, self.CenterPosition, screenPos.ToVector2(), 0, palette);
 
 				screenPos += pipStride;
 			}

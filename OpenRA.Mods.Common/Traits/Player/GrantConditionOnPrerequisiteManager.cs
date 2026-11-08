@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Traits;
 
@@ -25,7 +26,7 @@ namespace OpenRA.Mods.Common.Traits
 	public class GrantConditionOnPrerequisiteManager : ITechTreeElement
 	{
 		readonly Actor self;
-		readonly Dictionary<string, List<(Actor Actor, GrantConditionOnPrerequisite GrantConditionOnPrerequisite)>> upgradables = new Dictionary<string, List<(Actor, GrantConditionOnPrerequisite)>>();
+		readonly Dictionary<string, List<(Actor Actor, GrantConditionOnPrerequisite GrantConditionOnPrerequisite)>> upgradables = [];
 		readonly TechTree techTree;
 
 		public GrantConditionOnPrerequisiteManager(ActorInitializer init)
@@ -34,33 +35,33 @@ namespace OpenRA.Mods.Common.Traits
 			techTree = self.Trait<TechTree>();
 		}
 
-		static string MakeKey(string[] prerequisites)
+		static string MakeKey(ImmutableArray<string> prerequisites)
 		{
-			return "condition_" + string.Join("_", prerequisites.OrderBy(a => a));
+			return "condition_" + string.Join("_", prerequisites.Order());
 		}
 
-		public void Register(Actor actor, GrantConditionOnPrerequisite u, string[] prerequisites)
+		public void Register(Actor actor, GrantConditionOnPrerequisite u, ImmutableArray<string> prerequisites)
 		{
 			var key = MakeKey(prerequisites);
-			if (!upgradables.ContainsKey(key))
+			if (!upgradables.TryGetValue(key, out var list))
 			{
-				upgradables.Add(key, new List<(Actor, GrantConditionOnPrerequisite)>());
+				upgradables.Add(key, list = []);
 				techTree.Add(key, prerequisites, 0, this);
 			}
 
-			upgradables[key].Add((actor, u));
+			list.Add((actor, u));
 
 			// Notify the current state
 			u.PrerequisitesUpdated(actor, techTree.HasPrerequisites(prerequisites));
 		}
 
-		public void Unregister(Actor actor, GrantConditionOnPrerequisite u, string[] prerequisites)
+		public void Unregister(Actor actor, GrantConditionOnPrerequisite u, ImmutableArray<string> prerequisites)
 		{
 			var key = MakeKey(prerequisites);
 			var list = upgradables[key];
 
 			list.RemoveAll(x => x.Actor == actor && x.GrantConditionOnPrerequisite == u);
-			if (!list.Any())
+			if (list.Count == 0)
 			{
 				upgradables.Remove(key);
 				techTree.Remove(key);

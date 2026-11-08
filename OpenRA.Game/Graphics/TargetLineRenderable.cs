@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Primitives;
 
 namespace OpenRA.Graphics
@@ -22,7 +23,7 @@ namespace OpenRA.Graphics
 		readonly int width;
 		readonly int markerSize;
 
-		public TargetLineRenderable(IEnumerable<WPos> waypoints, Color color, int width = 1, int markerSize = 1)
+		public TargetLineRenderable(IEnumerable<WPos> waypoints, Color color, int width, int markerSize)
 		{
 			this.waypoints = waypoints;
 			this.color = color;
@@ -34,13 +35,13 @@ namespace OpenRA.Graphics
 		public int ZOffset => 0;
 		public bool IsDecoration => true;
 
-		public IRenderable WithZOffset(int newOffset) { return new TargetLineRenderable(waypoints, color); }
+		public IRenderable WithZOffset(int newOffset) { return this; }
 
 		public IRenderable OffsetBy(in WVec vec)
 		{
 			// Lambdas can't use 'in' variables, so capture a copy for later
 			var offset = vec;
-			return new TargetLineRenderable(waypoints.Select(w => w + offset), color);
+			return new TargetLineRenderable(waypoints.Select(w => w + offset), color, width, markerSize);
 		}
 
 		public IRenderable AsDecoration() { return this; }
@@ -51,21 +52,21 @@ namespace OpenRA.Graphics
 			if (!waypoints.Any())
 				return;
 
-			var first = wr.Viewport.WorldToViewPx(wr.Screen3DPosition(waypoints.First()));
+			var first = wr.Viewport.WorldToViewPx(wr.Screen3DPosition(waypoints.First())).ToVector3();
 			var a = first;
-			foreach (var b in waypoints.Skip(1).Select(pos => wr.Viewport.WorldToViewPx(wr.Screen3DPosition(pos))))
+			foreach (var b in waypoints.Skip(1).Select(pos => wr.Viewport.WorldToViewPx(wr.Screen3DPosition(pos)).ToVector3()))
 			{
 				Game.Renderer.RgbaColorRenderer.DrawLine(a, b, width, color);
-				DrawTargetMarker(wr, color, b, markerSize);
+				DrawTargetMarker(color, b, markerSize);
 				a = b;
 			}
 
-			DrawTargetMarker(wr, color, first);
+			DrawTargetMarker(color, first);
 		}
 
-		public static void DrawTargetMarker(WorldRenderer wr, Color color, int2 screenPos, int size = 1)
+		public static void DrawTargetMarker(Color color, Vector3 screenPos, int size = 1)
 		{
-			var offset = new int2(size, size);
+			var offset = new Vector3(size, size, 0);
 			var tl = screenPos - offset;
 			var br = screenPos + offset;
 			Game.Renderer.RgbaColorRenderer.FillRect(tl, br, color);

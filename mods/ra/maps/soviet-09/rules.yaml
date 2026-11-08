@@ -1,19 +1,20 @@
 World:
 	LuaScript:
-		Scripts: campaign-global.lua, soviet09.lua, soviet09-AI.lua
+		Scripts: campaign.lua, utils.lua, soviet09.lua, soviet09-AI.lua
 	MissionData:
 		BriefingVideo: soviet9.vqa
 		WinVideo: v2rocket.vqa
 		LossVideo: sfrozen.vqa
 		StartVideo: movingin.vqa
-		Briefing: The Allied forces have intercepted and destroyed a convoy that carried parts for our secret weapon. One truck remains, but they have captured that last truck and its cargo.\n\nThis is not acceptable! You are to destroy that truck before the Allies leave the area with it.
+		Briefing: briefing
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
 		Default: normal
 	SmudgeLayer@SCORCH:
 		InitialSmudges:

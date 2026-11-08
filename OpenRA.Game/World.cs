@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,7 +10,9 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using OpenRA.Effects;
 using OpenRA.FileFormats;
@@ -27,19 +29,19 @@ namespace OpenRA
 
 	public sealed class World : IDisposable
 	{
-		internal readonly TraitDictionary TraitDict = new TraitDictionary();
-		readonly SortedDictionary<uint, Actor> actors = new SortedDictionary<uint, Actor>();
-		readonly List<IEffect> effects = new List<IEffect>();
-		readonly List<IEffect> unpartitionedEffects = new List<IEffect>();
-		readonly List<ISync> syncedEffects = new List<ISync>();
+		internal readonly TraitDictionary TraitDict = new();
+		readonly SortedDictionary<uint, Actor> actors = [];
+		readonly List<IEffect> effects = [];
+		readonly List<IEffect> unpartitionedEffects = [];
+		readonly List<ISync> syncedEffects = [];
+		readonly ModData modData;
 		readonly GameSettings gameSettings;
 
-		readonly Queue<Action<World>> frameEndActions = new Queue<Action<World>>();
+		readonly Queue<Action<World>> frameEndActions = [];
 
 		public readonly GameSpeed GameSpeed;
 
 		public readonly int Timestep;
-		public readonly int OrderLatency;
 
 		public int ReplayTimestep;
 
@@ -48,11 +50,10 @@ namespace OpenRA
 
 		public readonly MersenneTwister SharedRandom;
 		public readonly MersenneTwister LocalRandom;
-		public readonly IModelCache ModelCache;
-		public LongBitSet<PlayerBitMask> AllPlayersMask = default(LongBitSet<PlayerBitMask>);
-		public readonly LongBitSet<PlayerBitMask> NoPlayersMask = default(LongBitSet<PlayerBitMask>);
+		public LongBitSet<PlayerBitMask> AllPlayersMask = default;
+		public readonly LongBitSet<PlayerBitMask> NoPlayersMask = default;
 
-		public Player[] Players = new Player[0];
+		public Player[] Players = [];
 
 		public event Action<Player> RenderPlayerChanged;
 
@@ -67,15 +68,20 @@ namespace OpenRA
 		public Player LocalPlayer { get; private set; }
 
 		public event Action GameOver = () => { };
+
+		/// <summary>Indicates that the game has ended.</summary>
+		/// <remarks>Should only be set in <see cref="EndGame"/>.</remarks>
 		public bool IsGameOver { get; private set; }
 		public void EndGame()
 		{
 			if (!IsGameOver)
 			{
+				SetPauseState(true);
 				IsGameOver = true;
 
 				foreach (var t in WorldActor.TraitsImplementing<IGameOver>())
 					t.GameOver(this);
+
 				gameInfo.FinalGameTick = WorldTick;
 				GameOver();
 			}
@@ -137,11 +143,14 @@ namespace OpenRA
 		public readonly WorldType Type;
 
 		public readonly IValidateOrder[] OrderValidators;
+		readonly INotifyPlayerDisconnected[] notifyDisconnected;
 
 		readonly GameInformation gameInfo;
 
 		// Hide the OrderManager from mod code
 		public void IssueOrder(Order o) { OrderManager.IssueOrder(o); }
+
+		readonly Type defaultOrderGeneratorType;
 
 		IOrderGenerator orderGenerator;
 		public IOrderGenerator OrderGenerator
@@ -158,56 +167,46 @@ namespace OpenRA
 		}
 
 		public readonly ISelection Selection;
+		public readonly IControlGroups ControlGroups;
 
-		public void CancelInputMode() { OrderGenerator = new UnitOrderGenerator(); }
+		public void CancelInputMode() { OrderGenerator = (IOrderGenerator)defaultOrderGeneratorType.GetConstructor([typeof(World)])?.Invoke([this]); }
 
-		public bool ToggleInputMode<T>() where T : IOrderGenerator, new()
-		{
-			if (OrderGenerator is T)
-			{
-				CancelInputMode();
-				return false;
-			}
-			else
-			{
-				OrderGenerator = new T();
-				return true;
-			}
-		}
-
-		public bool RulesContainTemporaryBlocker { get; private set; }
+		public bool RulesContainTemporaryBlocker { get; }
 
 		bool wasLoadingGameSave;
 
-		internal World(ModData modData, Map map, OrderManager orderManager, WorldType type)
+		internal World(Map map, ModData modData, OrderManager orderManager, WorldType type)
 		{
 			Type = type;
 			OrderManager = orderManager;
-			orderGenerator = new UnitOrderGenerator();
+			this.modData = modData;
 			Map = map;
 
-			var gameSpeeds = modData.Manifest.Get<GameSpeeds>();
+			if (string.IsNullOrEmpty(modData.Manifest.DefaultOrderGenerator))
+				throw new InvalidDataException("mod.yaml must define a DefaultOrderGenerator");
+
+			defaultOrderGeneratorType = modData.ObjectCreator.FindType(modData.Manifest.DefaultOrderGenerator);
+			if (defaultOrderGeneratorType == null)
+				throw new InvalidDataException($"{modData.Manifest.DefaultOrderGenerator} is not a valid DefaultOrderGenerator");
+
+			orderGenerator = (IOrderGenerator)defaultOrderGeneratorType.GetConstructor([typeof(World)])?.Invoke([this]);
+
+			var gameSpeeds = modData.GetOrCreate<GameSpeeds>();
 			var gameSpeedName = orderManager.LobbyInfo.GlobalSettings.OptionOrDefault("gamespeed", gameSpeeds.DefaultSpeed);
 			GameSpeed = gameSpeeds.Speeds[gameSpeedName];
-
 			Timestep = ReplayTimestep = GameSpeed.Timestep;
-			OrderLatency = GameSpeed.OrderLatency;
-
-			// HACK: Turn down the latency if there is only one real player/spectator
-			if (orderManager.LobbyInfo.NonBotClients.Count() == 1)
-				OrderLatency = 1;
 
 			SharedRandom = new MersenneTwister(orderManager.LobbyInfo.GlobalSettings.RandomSeed);
 			LocalRandom = new MersenneTwister();
 
-			ModelCache = modData.ModelSequenceLoader.CacheModels(map, modData, map.Rules.ModelSequences);
-
 			var worldActorType = type == WorldType.Editor ? SystemActors.EditorWorld : SystemActors.World;
-			WorldActor = CreateActor(worldActorType.ToString(), new TypeDictionary());
+			WorldActor = CreateActor(worldActorType.ToString(), []);
 			ActorMap = WorldActor.Trait<IActorMap>();
 			ScreenMap = WorldActor.Trait<ScreenMap>();
 			Selection = WorldActor.Trait<ISelection>();
+			ControlGroups = WorldActor.Trait<IControlGroups>();
 			OrderValidators = WorldActor.TraitsImplementing<IValidateOrder>().ToArray();
+			notifyDisconnected = WorldActor.TraitsImplementing<INotifyPlayerDisconnected>().ToArray();
 
 			LongBitSet<PlayerBitMask>.Reset();
 
@@ -227,8 +226,12 @@ namespace OpenRA
 				MapTitle = Map.Title
 			};
 
-			RulesContainTemporaryBlocker = map.Rules.Actors.Any(a => a.Value.HasTraitInfo<ITemporaryBlockerInfo>());
-			gameSettings = Game.Settings.Game;
+			var preview = modData.MapCache[Map.Uid];
+			if (preview.Class == MapClassification.Generated)
+				gameInfo.MapGenerationArgs = preview.GenerationArgs;
+
+			RulesContainTemporaryBlocker = Map.Rules.Actors.Any(a => a.Value.HasTraitInfo<ITemporaryBlockerInfo>());
+			gameSettings = GetSettings<GameSettings>();
 		}
 
 		public void AddToMaps(Actor self, IOccupySpace ios)
@@ -283,16 +286,27 @@ namespace OpenRA
 					using (new PerfTimer(iwl.GetType().Name + ".WorldLoaded"))
 						iwl.WorldLoaded(this, wr);
 
-			gameInfo.StartTimeUtc = DateTime.UtcNow;
 			foreach (var player in Players)
 				gameInfo.AddPlayer(player, OrderManager.LobbyInfo);
 
-			gameInfo.DisabledSpawnPoints = OrderManager.LobbyInfo.DisabledSpawnPoints;
+			gameInfo.DisabledSpawnPoints = OrderManager.LobbyInfo.DisabledSpawnPoints.ToFrozenSet();
 
-			var rc = (OrderManager.Connection as EchoConnection)?.Recorder;
+			gameInfo.StartTimeUtc = DateTime.UtcNow;
 
-			if (rc != null)
-				rc.Metadata = new ReplayMetadata(gameInfo);
+			if (OrderManager.Connection is NetworkConnection nc && nc.Recorder != null)
+				nc.Recorder.Metadata = new ReplayMetadata(gameInfo);
+		}
+
+		public void PostLoadComplete(WorldRenderer wr)
+		{
+			foreach (var iwl in WorldActor.TraitsImplementing<IPostWorldLoaded>())
+				using (new PerfTimer(iwl.GetType().Name + ".PostWorldLoaded"))
+					iwl.PostWorldLoaded(this, wr);
+
+			foreach (var p in Players)
+				foreach (var iwl in p.PlayerActor.TraitsImplementing<IPostWorldLoaded>())
+					using (new PerfTimer(iwl.GetType().Name + ".PostWorldLoaded"))
+						iwl.PostWorldLoaded(this, wr);
 		}
 
 		public void SetWorldOwner(Player p)
@@ -341,7 +355,7 @@ namespace OpenRA
 		{
 			effects.Add(e);
 
-			if (!(e is ISpatiallyPartitionable))
+			if (e is not ISpatiallyPartitionable)
 				unpartitionedEffects.Add(e);
 
 			if (e is ISync se)
@@ -352,7 +366,7 @@ namespace OpenRA
 		{
 			effects.Remove(e);
 
-			if (!(e is ISpatiallyPartitionable))
+			if (e is not ISpatiallyPartitionable)
 				unpartitionedEffects.Remove(e);
 
 			if (e is ISync se)
@@ -362,7 +376,7 @@ namespace OpenRA
 		public void RemoveAll(Predicate<IEffect> predicate)
 		{
 			effects.RemoveAll(predicate);
-			unpartitionedEffects.RemoveAll(e => predicate((IEffect)e));
+			unpartitionedEffects.RemoveAll(e => predicate(e));
 			syncedEffects.RemoveAll(e => predicate((IEffect)e));
 		}
 
@@ -373,11 +387,10 @@ namespace OpenRA
 
 		public bool Paused { get; internal set; }
 		public bool PredictedPaused { get; internal set; }
-		public bool PauseStateLocked { get; set; }
 
 		public int WorldTick { get; private set; }
 
-		Dictionary<int, MiniYaml> gameSaveTraitData = new Dictionary<int, MiniYaml>();
+		readonly Dictionary<int, MiniYaml> gameSaveTraitData = [];
 		internal void AddGameSaveTraitData(int traitIndex, MiniYaml yaml)
 		{
 			gameSaveTraitData[traitIndex] = yaml;
@@ -385,7 +398,7 @@ namespace OpenRA
 
 		public void SetPauseState(bool paused)
 		{
-			if (PauseStateLocked)
+			if (IsGameOver)
 				return;
 
 			IssueOrder(Order.FromTargetString("PauseGame", paused ? "Pause" : "UnPause", false));
@@ -410,7 +423,7 @@ namespace OpenRA
 					if (tp.Actor == null)
 						break;
 
-					tp.Trait.ResolveTraitData(tp.Actor, kv.Value.Nodes);
+					tp.Trait.ResolveTraitData(tp.Actor, kv.Value);
 				}
 
 				gameSaveTraitData.Clear();
@@ -432,7 +445,7 @@ namespace OpenRA
 					foreach (var a in actors.Values)
 						a.Tick();
 
-				ApplyToActorsWithTraitTimed<ITick>((Actor actor, ITick trait) => trait.Tick(actor), "Trait");
+				ApplyToActorsWithTraitTimed<ITick>((actor, trait) => trait.Tick(actor), "Trait");
 
 				effects.DoTimed(e => e.Tick(this), "Effect");
 			}
@@ -444,7 +457,7 @@ namespace OpenRA
 		// For things that want to update their render state once per tick, ignoring pause state
 		public void TickRender(WorldRenderer wr)
 		{
-			ApplyToActorsWithTraitTimed<ITickRender>((Actor actor, ITickRender trait) => trait.TickRender(wr, actor), "Render");
+			ApplyToActorsWithTraitTimed<ITickRender>((actor, trait) => trait.TickRender(wr, actor), "Render");
 			ScreenMap.TickRender();
 		}
 
@@ -505,7 +518,12 @@ namespace OpenRA
 
 		public void ApplyToActorsWithTraitTimed<T>(Action<Actor, T> action, string text)
 		{
-			TraitDict.ApplyToActorsWithTraitTimed<T>(action, text);
+			TraitDict.ApplyToActorsWithTraitTimed(action, text);
+		}
+
+		public void ApplyToActorsWithTrait<T>(Action<Actor, T> action)
+		{
+			TraitDict.ApplyToActorsWithTrait(action);
 		}
 
 		public IEnumerable<Actor> ActorsHavingTrait<T>()
@@ -528,16 +546,23 @@ namespace OpenRA
 			}
 		}
 
-		public void OnPlayerDisconnected(Player player)
+		internal void OnClientDisconnected(int clientId)
 		{
-			var pi = gameInfo.GetPlayer(player);
-			if (pi == null)
-				return;
+			foreach (var player in Players.Where(p => p.ClientIndex == clientId && p.PlayerReference.Playable))
+			{
+				foreach (var np in notifyDisconnected)
+					np.PlayerDisconnected(WorldActor, player);
 
-			pi.DisconnectFrame = OrderManager.NetFrameNumber;
+				foreach (var p in Players)
+					p.PlayerDisconnected(player);
+
+				var pi = gameInfo.GetPlayer(player);
+				if (pi != null)
+					pi.DisconnectFrame = OrderManager.NetFrameNumber;
+			}
 		}
 
-		public void RequestGameSave(string filename)
+		public void RequestGameSave(string filename, bool isAutosave)
 		{
 			// Allow traits to save arbitrary data that will be passed back via IGameSaveTraitData.ResolveTraitData
 			// at the end of the save restoration
@@ -548,14 +573,15 @@ namespace OpenRA
 				var data = tp.Trait.IssueTraitData(tp.Actor);
 				if (data != null)
 				{
-					var yaml = new List<MiniYamlNode>() { new MiniYamlNode(i.ToString(), new MiniYaml("", data)) };
+					var yaml = new List<MiniYamlNode>() { new(i.ToStringInvariant(), new MiniYaml("", data)) };
 					IssueOrder(Order.FromTargetString("GameSaveTraitData", yaml.WriteToString(), true));
 				}
 
 				i++;
 			}
 
-			IssueOrder(Order.FromTargetString("CreateGameSave", filename, true));
+			var extraData = isAutosave ? 1u : 0u;
+			IssueOrder(Order.FromTargetString("CreateGameSave", filename, true, extraData));
 		}
 
 		public bool Disposing;
@@ -573,8 +599,6 @@ namespace OpenRA
 			if (IsLoadingGameSave)
 				Game.Sound.DisableAllSounds = false;
 
-			ModelCache.Dispose();
-
 			// Dispose newer actors first, and the world actor last
 			foreach (var a in actors.Values.Reverse())
 				a.Dispose();
@@ -583,16 +607,35 @@ namespace OpenRA
 			while (frameEndActions.Count != 0)
 				frameEndActions.Dequeue()(this);
 
+			// HACK: The shellmap OrderManager is owned by its world in order to avoid
+			// problems with having multiple OMs active when joining a game lobby from the main menu.
+			// A matching check in Game.JoinInner handles OM disposal for all other cases.
+			if (Type == WorldType.Shellmap)
+				OrderManager.Dispose();
+
+			Map.Dispose();
+
 			Game.FinishBenchmark();
+		}
+
+		public void OutOfSync()
+		{
+			EndGame();
+
+			// In the event the replay goes out of sync, it becomes no longer usable. For polish we permanently pause the world.
+			ReplayTimestep = 0;
+		}
+
+		public T GetSettings<T>() where T : SettingsModule
+		{
+			return modData.GetSettings<T>();
 		}
 	}
 
-	public readonly struct TraitPair<T> : IEquatable<TraitPair<T>>
+	public readonly struct TraitPair<T>(Actor actor, T trait) : IEquatable<TraitPair<T>>
 	{
-		public readonly Actor Actor;
-		public readonly T Trait;
-
-		public TraitPair(Actor actor, T trait) { Actor = actor; Trait = trait; }
+		public readonly Actor Actor = actor;
+		public readonly T Trait = trait;
 
 		public static bool operator ==(TraitPair<T> me, TraitPair<T> other) { return me.Actor == other.Actor && Equals(me.Trait, other.Trait); }
 		public static bool operator !=(TraitPair<T> me, TraitPair<T> other) { return !(me == other); }
@@ -600,7 +643,7 @@ namespace OpenRA
 		public override int GetHashCode() { return Actor.GetHashCode() ^ Trait.GetHashCode(); }
 
 		public bool Equals(TraitPair<T> other) { return this == other; }
-		public override bool Equals(object obj) { return obj is TraitPair<T> && Equals((TraitPair<T>)obj); }
+		public override bool Equals(object obj) { return obj is TraitPair<T> pair && Equals(pair); }
 
 		public override string ToString() { return Actor.Info.Name + "->" + Trait.GetType().Name; }
 	}

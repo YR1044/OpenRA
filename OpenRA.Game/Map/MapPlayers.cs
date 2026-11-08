@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Traits;
 
@@ -21,15 +22,16 @@ namespace OpenRA
 		// The "Everyone" player for spectators is created at runtime,
 		// reducing the available player count for maps by 1.
 		public const int MaximumPlayerCount = 63;
-		public readonly Dictionary<string, PlayerReference> Players;
+		public readonly OrderedDictionary<string, PlayerReference> Players;
 
 		public MapPlayers()
-			: this(new List<MiniYamlNode>()) { }
+			: this([]) { }
 
 		public MapPlayers(IEnumerable<MiniYamlNode> playerDefinitions)
 		{
-			Players = playerDefinitions.Select(pr => new PlayerReference(new MiniYaml(pr.Key, pr.Value.Nodes)))
-				.ToDictionary(player => player.Name);
+			Players = new OrderedDictionary<string, PlayerReference>(playerDefinitions
+				.Select(pr => new PlayerReference(new MiniYaml(pr.Key, pr.Value.Nodes)))
+				.Select(player => KeyValuePair.Create(player.Name, player)));
 		}
 
 		public MapPlayers(Ruleset rules, int playerCount)
@@ -37,7 +39,7 @@ namespace OpenRA
 			var firstFaction = rules.Actors[SystemActors.World].TraitInfos<FactionInfo>()
 				.First(f => f.Selectable).InternalName;
 
-			Players = new Dictionary<string, PlayerReference>
+			Players = new OrderedDictionary<string, PlayerReference>
 			{
 				{
 					"Neutral", new PlayerReference
@@ -54,7 +56,7 @@ namespace OpenRA
 						Name = "Creeps",
 						Faction = firstFaction,
 						NonCombatant = true,
-						Enemies = Exts.MakeArray(playerCount, i => $"Multi{i}")
+						Enemies = Exts.MakeArray(playerCount, i => $"Multi{i}").ToImmutableArray()
 					}
 				}
 			};
@@ -66,7 +68,7 @@ namespace OpenRA
 					Name = $"Multi{index}",
 					Faction = "Random",
 					Playable = true,
-					Enemies = new[] { "Creeps" }
+					Enemies = ["Creeps"]
 				};
 				Players.Add(p.Name, p);
 			}

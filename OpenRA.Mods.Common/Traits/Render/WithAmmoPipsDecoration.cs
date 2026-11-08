@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Traits;
@@ -39,7 +40,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 		public readonly string Palette = "chrome";
 
 		[Desc("Name(s) of AmmoPool(s) that use this decoration. Leave empty to include all pools.")]
-		public readonly string[] AmmoPools = { };
+		public readonly ImmutableArray<string> AmmoPools = [];
 
 		public override object Create(ActorInitializer init) { return new WithAmmoPipsDecoration(init.Self, this); }
 	}
@@ -52,7 +53,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 		public WithAmmoPipsDecoration(Actor self, WithAmmoPipsDecorationInfo info)
 			: base(self, info)
 		{
-			if (info.AmmoPools.Any())
+			if (info.AmmoPools.Length > 0)
 				ammo = self.TraitsImplementing<AmmoPool>()
 					.Where(ap => info.AmmoPools.Contains(ap.Info.Name))
 					.ToArray();
@@ -67,7 +68,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 			pips.PlayRepeating(Info.EmptySequence);
 
 			var palette = wr.Palette(Info.Palette);
-			var pipSize = pips.Image.Size.XY.ToInt2();
+			var pipSize = int2.FromVector(pips.Image.Size);
 			var pipStride = Info.PipStride != int2.Zero ? Info.PipStride : new int2(pipSize.X, 0);
 			screenPos -= pipSize / 2;
 
@@ -83,7 +84,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 			for (var i = 0; i < pipCount; i++)
 			{
 				pips.PlayRepeating(currentAmmo * pipCount > i * totalAmmo ? Info.FullSequence : Info.EmptySequence);
-				yield return new UISpriteRenderable(pips.Image, self.CenterPosition, screenPos, 0, palette);
+				yield return new UISpriteRenderable(pips.Image, self.CenterPosition, screenPos.ToVector2(), 0, palette);
 
 				screenPos += pipStride;
 			}

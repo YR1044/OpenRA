@@ -1,4 +1,4 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: d2k
 
@@ -33,14 +33,14 @@ Players:
 		LockFaction: True
 		Faction: harkonnen
 		LockColor: True
-		Color: FE0000
+		Color: D64A42
 		Enemies: Atreides Main Base, Atreides Small Base, Corrino, Creeps
 	PlayerReference@Atreides Main Base:
 		Name: Atreides Main Base
 		LockFaction: True
 		Faction: atreides
 		LockColor: True
-		Color: 9191FF
+		Color: 5A7394
 		Allies: Atreides Small Base, Corrino
 		Enemies: Harkonnen, Creeps
 		Bot: campaign
@@ -49,7 +49,7 @@ Players:
 		LockFaction: True
 		Faction: atreides
 		LockColor: True
-		Color: 9191FF
+		Color: 5A7394
 		Allies: Atreides Main Base, Corrino
 		Enemies: Harkonnen, Creeps
 		Bot: campaign
@@ -58,7 +58,7 @@ Players:
 		LockFaction: True
 		Faction: corrino
 		LockColor: True
-		Color: 7D00FE
+		Color: 73007B
 		Allies: Atreides Main Base, Atreides Small Base
 		Enemies: Harkonnen, Creeps
 		Bot: campaign
@@ -298,6 +298,7 @@ Actors:
 	AGunt1: medium_gun_turret
 		Location: 80,27
 		Owner: Atreides Main Base
+		TurretFacing: 512
 	Actor77: wall
 		Location: 81,27
 		Owner: Atreides Main Base
@@ -769,5 +770,34 @@ Actors:
 	AtreidesEntry2: waypoint
 		Owner: Neutral
 		Location: 2,27
+	AtreidesPoint2: waypoint
+		Owner: Neutral
+		Location: 72,13
+	AtreidesPoint3: waypoint
+		Owner: Neutral
+		Location: 55,53
+	AtreidesPoint4: waypoint
+		Owner: Neutral
+		Location: 24,33
+	AtreidesPoint5: waypoint
+		Owner: Neutral
+		Location: 28,55
+	AtreidesPoint6: waypoint
+		Owner: Neutral
+		Location: 33,9
+	VisionPoint: vision_provider
+		Owner: Harkonnen
+		Location: 64,64
+	Crate1: crate_script
+		Owner: Harkonnen
+		Location: 57,62
+	AtreidesPoint1: waypoint
+		Owner: Neutral
+		Location: 54,6
+	Actor7: crate
+		Owner: Neutral
+		Location: 49,9
 
 Rules: d2k|rules/campaign-rules.yaml, d2k|rules/campaign-tooltips.yaml, d2k|rules/campaign-palettes.yaml, rules.yaml
+
+FluentMessages: d2k|fluent/lua.ftl, d2k|fluent/campaign.ftl, map.ftl

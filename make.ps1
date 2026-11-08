@@ -10,7 +10,11 @@ function All-Command
 		return
 	}
 
-	dotnet build -c Release --nologo -p:TargetPlatform=win-x64
+	$arch = $env:PROCESSOR_ARCHITECTURE
+	Write-Host "Building in" $configuration "configuration for" $arch "..." -ForegroundColor Cyan
+	$rid = if ($arch -eq "ARM64") { "win-arm64" } else { "win-x64" }
+	dotnet build -c $configuration --nologo -p:TargetPlatform=$rid
+
 	if ($lastexitcode -ne 0)
 	{
 		Write-Host "Build failed. If just the development tools failed to build, try installing Visual Studio. You may also still be able to run the game." -ForegroundColor Red
@@ -72,7 +76,7 @@ function Version-Command
 	if ($version -ne $null)
 	{
 		$version | out-file ".\VERSION"
-		$mods = @("mods/ra/mod.yaml", "mods/cnc/mod.yaml", "mods/d2k/mod.yaml", "mods/ts/mod.yaml", "mods/modcontent/mod.yaml", "mods/all/mod.yaml")
+		$mods = Get-ChildItem ./mods/*/mod.yaml | Select-Object -Expand FullName
 		foreach ($mod in $mods)
 		{
 			$replacement = (gc $mod) -Replace "Version:.*", ("Version: {0}" -f $version)
@@ -98,20 +102,36 @@ function Test-Command
 	}
 
 	Write-Host "Testing mods..." -ForegroundColor Cyan
-	Write-Host "Testing Tiberian Sun mod MiniYAML..." -ForegroundColor Cyan
+	Write-Host "`nTesting Tiberian Sun mod MiniYAML..." -ForegroundColor Cyan
+	InvokeCommand "$utilityPath ts-content --check-yaml"
 	InvokeCommand "$utilityPath ts --check-yaml"
-	Write-Host "Testing Dune 2000 mod MiniYAML..." -ForegroundColor Cyan
+	Write-Host "`nTesting Dune 2000 mod MiniYAML..." -ForegroundColor Cyan
+	InvokeCommand "$utilityPath d2k-content --check-yaml"
 	InvokeCommand "$utilityPath d2k --check-yaml"
-	Write-Host "Testing Tiberian Dawn mod MiniYAML..." -ForegroundColor Cyan
+	Write-Host "`nTesting Tiberian Dawn mod MiniYAML..." -ForegroundColor Cyan
+	InvokeCommand "$utilityPath cnc-content --check-yaml"
 	InvokeCommand "$utilityPath cnc --check-yaml"
-	Write-Host "Testing Red Alert mod MiniYAML..." -ForegroundColor Cyan
+	Write-Host "`nTesting Red Alert mod MiniYAML..." -ForegroundColor Cyan
+	InvokeCommand "$utilityPath ra-content --check-yaml"
 	InvokeCommand "$utilityPath ra --check-yaml"
+}
+
+function Tests-Command
+{
+	Write-Host "Running unit tests..." -ForegroundColor Cyan
+	$rid = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "win-arm64" } else { "win-x64" }
+	dotnet build OpenRA.Test\OpenRA.Test.csproj -c Debug --nologo -p:TargetPlatform=$rid
+	dotnet test bin\OpenRA.Test.dll --test-adapter-path:.
 }
 
 function Check-Command
 {
-	Write-Host "Compiling in debug configuration..." -ForegroundColor Cyan
-	dotnet build -c Debug --nologo -p:TargetPlatform=win-x64
+	Write-Host "Compiling in Debug configuration..." -ForegroundColor Cyan
+
+	dotnet clean -c Debug --nologo --verbosity minimal
+	$rid = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "win-arm64" } else { "win-x64" }
+	dotnet build -c Debug --nologo -warnaserror -p:TargetPlatform=$rid
+
 	if ($lastexitcode -ne 0)
 	{
 		Write-Host "Build failed." -ForegroundColor Red
@@ -136,11 +156,7 @@ function Check-Scripts-Command
 		{
 			luac -p $script
 		}
-		foreach ($script in ls "lua/*.lua")
-		{
-			luac -p $script
-		}
-		foreach ($script in ls "mods/*/bits/scripts/*.lua")
+		foreach ($script in ls "mods/*/scripts/*.lua")
 		{
 			luac -p $script
 		}
@@ -234,6 +250,12 @@ else
 $env:ENGINE_DIR = ".."
 $utilityPath = "bin\OpenRA.Utility.exe"
 
+$configuration = "Release"
+if ($args.Contains("CONFIGURATION=Debug"))
+{
+	$configuration = "Debug"
+}
+
 $execute = $command
 if ($command.Length -gt 1)
 {
@@ -246,6 +268,7 @@ switch ($execute)
 	{"version",       "v"  -contains $_} { Version-Command }
 	{"clean",         "c"  -contains $_} { Clean-Command }
 	{"test",          "t"  -contains $_} { Test-Command }
+	{"tests",         "ut" -contains $_} { Tests-Command }
 	{"check",         "ck" -contains $_} { Check-Command }
 	{"check-scripts", "cs" -contains $_} { Check-Scripts-Command }
 	Default { Write-Host ("Invalid command '{0}'" -f $command) }

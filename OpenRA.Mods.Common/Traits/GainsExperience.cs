@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using OpenRA.Mods.Common.Effects;
 using OpenRA.Primitives;
@@ -17,6 +18,7 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[IncludeStaticFluentReferences(typeof(GainsExperience))]
 	[Desc("This actor's experience increases when it has killed a GivesExperience actor.")]
 	public class GainsExperienceInfo : TraitInfo
 	{
@@ -24,7 +26,7 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Condition to grant at each level.",
 			"Key is the XP requirements for each level as a percentage of our own value.",
 			"Value is the condition to grant.")]
-		public readonly Dictionary<int, string> Conditions = null;
+		public readonly FrozenDictionary<int, string> Conditions = null;
 
 		[GrantedConditionReference]
 		public IEnumerable<string> LinterConditions => Conditions.Values;
@@ -49,22 +51,31 @@ namespace OpenRA.Mods.Common.Traits
 		[NotificationReference("Sounds")]
 		public readonly string LevelUpNotification = null;
 
+		[FluentReference(optional: true)]
+		public readonly string LevelUpTextNotification = null;
+
 		public override object Create(ActorInitializer init) { return new GainsExperience(init, this); }
 	}
 
 	public class GainsExperience : INotifyCreated, ISync, IResolveOrder, ITransformActorInitModifier
 	{
+		[FluentReference("cheat", "player", "suffix")]
+		const string CheatUsed = "notification-cheat-used";
+
+		public const string CommandName = "levelup";
+		public const string OrderName = "DevLevelUp";
+
 		readonly Actor self;
 		readonly GainsExperienceInfo info;
 		readonly int initialExperience;
 
-		readonly List<(int RequiredExperience, string Condition)> nextLevel = new List<(int, string)>();
+		readonly List<(int RequiredExperience, string Condition)> nextLevel = [];
 
 		// Stored as a percentage of our value
-		[Sync]
+		[VerifySync]
 		public int Experience { get; private set; }
 
-		[Sync]
+		[VerifySync]
 		public int Level { get; private set; }
 		public readonly int MaxLevel;
 
@@ -119,6 +130,8 @@ namespace OpenRA.Mods.Common.Traits
 				if (!silent)
 				{
 					Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Sounds", info.LevelUpNotification, self.Owner.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(self.Owner, info.LevelUpTextNotification);
+
 					if (info.LevelUpImage != null && info.LevelUpSequence != null)
 						self.World.AddFrameEndTask(w => w.Add(new SpriteEffect(self, w, info.LevelUpImage, info.LevelUpSequence, info.LevelUpPalette)));
 				}
@@ -127,7 +140,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		public void ResolveOrder(Actor self, Order order)
 		{
-			if (order.OrderString == "DevLevelUp")
+			if (order.OrderString == OrderName)
 			{
 				var developerMode = self.Owner.PlayerActor.Trait<DeveloperMode>();
 				if (!developerMode.Enabled)
@@ -137,6 +150,11 @@ namespace OpenRA.Mods.Common.Traits
 					GiveLevels((int)order.ExtraData);
 				else
 					GiveLevels(1);
+
+				TextNotificationsManager.Debug(FluentProvider.GetMessage(CheatUsed,
+					"cheat", OrderName,
+					"player", self.Owner.ResolvedPlayerName,
+					"suffix", ""));
 			}
 		}
 
@@ -146,7 +164,7 @@ namespace OpenRA.Mods.Common.Traits
 		}
 	}
 
-	class ExperienceInit : ValueActorInit<int>
+	sealed class ExperienceInit : ValueActorInit<int>
 	{
 		public ExperienceInit(TraitInfo info, int value)
 			: base(info, value) { }

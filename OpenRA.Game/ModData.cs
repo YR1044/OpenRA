@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,18 +10,22 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using OpenRA.FileSystem;
 using OpenRA.Graphics;
+using OpenRA.Primitives;
 using OpenRA.Video;
 using OpenRA.Widgets;
 using FS = OpenRA.FileSystem.FileSystem;
 
 namespace OpenRA
 {
+	public interface IGlobalModData { }
+
 	public sealed class ModData : IDisposable
 	{
 		public readonly Manifest Manifest;
@@ -31,13 +35,13 @@ namespace OpenRA
 		public readonly IPackageLoader[] PackageLoaders;
 		public readonly ISoundLoader[] SoundLoaders;
 		public readonly ISpriteLoader[] SpriteLoaders;
-		public readonly ITerrainLoader TerrainLoader;
 		public readonly ISpriteSequenceLoader SpriteSequenceLoader;
-		public readonly IModelSequenceLoader ModelSequenceLoader;
 		public readonly IVideoLoader[] VideoLoaders;
 		public readonly HotkeyManager Hotkeys;
-		public ILoadScreen LoadScreen { get; private set; }
-		public CursorProvider CursorProvider { get; private set; }
+		public readonly IFileSystemLoader FileSystemLoader;
+		public readonly FrozenDictionary<string, CursorSequence> Cursors;
+
+		public ILoadScreen LoadScreen { get; }
 		public FS ModFiles;
 		public IReadOnlyFileSystem DefaultFileSystem => ModFiles;
 
@@ -47,88 +51,106 @@ namespace OpenRA
 		readonly Lazy<IReadOnlyDictionary<string, ITerrainInfo>> defaultTerrainInfo;
 		public IReadOnlyDictionary<string, ITerrainInfo> DefaultTerrainInfo => defaultTerrainInfo.Value;
 
-		readonly Lazy<IReadOnlyDictionary<string, SequenceProvider>> defaultSequences;
-		public IReadOnlyDictionary<string, SequenceProvider> DefaultSequences => defaultSequences.Value;
+		readonly TypeDictionary modules = [];
 
 		public ModData(Manifest mod, InstalledMods mods, bool useLoadScreen = false)
 		{
-			Languages = new string[0];
+			Languages = [];
 
 			// Take a local copy of the manifest
 			Manifest = new Manifest(mod.Id, mod.Package);
 			ObjectCreator = new ObjectCreator(Manifest, mods);
 			PackageLoaders = ObjectCreator.GetLoaders<IPackageLoader>(Manifest.PackageFormats, "package");
-
 			ModFiles = new FS(mod.Id, mods, PackageLoaders);
-			ModFiles.LoadFromManifest(Manifest);
-			Manifest.LoadCustomData(ObjectCreator);
+
+			FileSystemLoader = ObjectCreator.GetLoader<IFileSystemLoader>(Manifest.FileSystem.Value, "filesystem");
+			FieldLoader.Load(FileSystemLoader, Manifest.FileSystem);
+			FileSystemLoader.Mount(Manifest, ModFiles, ObjectCreator);
+			ModFiles.TrimExcess();
+
+			foreach (var kv in Manifest.GlobalModData)
+			{
+				var t = ObjectCreator.FindType(kv.Key);
+				if (t == null || !typeof(IGlobalModData).IsAssignableFrom(t))
+					throw new InvalidDataException($"`{kv.Key}` is not a valid mod manifest entry.");
+
+				IGlobalModData module;
+				var ctor = t.GetConstructor([typeof(MiniYaml)]);
+				if (ctor != null)
+				{
+					// Class has opted-in to DIY initialization
+					module = (IGlobalModData)ctor.Invoke([kv.Value]);
+				}
+				else
+				{
+					// Automatically load the child nodes using FieldLoader
+					module = ObjectCreator.CreateObject<IGlobalModData>(kv.Key);
+					FieldLoader.Load(module, kv.Value);
+				}
+
+				modules.Add(module);
+			}
+
+			FluentProvider.Initialize(Manifest, DefaultFileSystem);
 
 			if (useLoadScreen)
 			{
 				LoadScreen = ObjectCreator.CreateObject<ILoadScreen>(Manifest.LoadScreen.Value);
-				LoadScreen.Init(this, Manifest.LoadScreen.ToDictionary(my => my.Value));
+				LoadScreen.Init(Manifest, DefaultFileSystem);
 				LoadScreen.Display();
 			}
 
-			WidgetLoader = new WidgetLoader(this);
-			MapCache = new MapCache(this);
+			WidgetLoader = new WidgetLoader(Manifest, DefaultFileSystem);
+			MapCache = new MapCache(Manifest, ModFiles);
 
 			SoundLoaders = ObjectCreator.GetLoaders<ISoundLoader>(Manifest.SoundFormats, "sound");
 			SpriteLoaders = ObjectCreator.GetLoaders<ISpriteLoader>(Manifest.SpriteFormats, "sprite");
 			VideoLoaders = ObjectCreator.GetLoaders<IVideoLoader>(Manifest.VideoFormats, "video");
-
-			var terrainFormat = Manifest.Get<TerrainFormat>();
-			var terrainLoader = ObjectCreator.FindType(terrainFormat.Type + "Loader");
-			var terrainCtor = terrainLoader?.GetConstructor(new[] { typeof(ModData) });
-			if (terrainLoader == null || !terrainLoader.GetInterfaces().Contains(typeof(ITerrainLoader)) || terrainCtor == null)
-				throw new InvalidOperationException($"Unable to find a terrain loader for type '{terrainFormat.Type}'.");
-
-			TerrainLoader = (ITerrainLoader)terrainCtor.Invoke(new[] { this });
-
-			var sequenceFormat = Manifest.Get<SpriteSequenceFormat>();
-			var sequenceLoader = ObjectCreator.FindType(sequenceFormat.Type + "Loader");
-			var sequenceCtor = sequenceLoader != null ? sequenceLoader.GetConstructor(new[] { typeof(ModData) }) : null;
-			if (sequenceLoader == null || !sequenceLoader.GetInterfaces().Contains(typeof(ISpriteSequenceLoader)) || sequenceCtor == null)
-				throw new InvalidOperationException($"Unable to find a sequence loader for type '{sequenceFormat.Type}'.");
-
-			SpriteSequenceLoader = (ISpriteSequenceLoader)sequenceCtor.Invoke(new[] { this });
-
-			var modelFormat = Manifest.Get<ModelSequenceFormat>();
-			var modelLoader = ObjectCreator.FindType(modelFormat.Type + "Loader");
-			var modelCtor = modelLoader != null ? modelLoader.GetConstructor(new[] { typeof(ModData) }) : null;
-			if (modelLoader == null || !modelLoader.GetInterfaces().Contains(typeof(IModelSequenceLoader)) || modelCtor == null)
-				throw new InvalidOperationException($"Unable to find a model loader for type '{modelFormat.Type}'.");
-
-			ModelSequenceLoader = (IModelSequenceLoader)modelCtor.Invoke(new[] { this });
-			ModelSequenceLoader.OnMissingModelError = s => Log.Write("debug", s);
-
-			Hotkeys = new HotkeyManager(ModFiles, Game.Settings.Keys, Manifest);
+			SpriteSequenceLoader = ObjectCreator.GetLoader<ISpriteSequenceLoader>(Manifest.SpriteSequenceFormat, "sequence");
+			Hotkeys = new HotkeyManager(ModFiles, ObjectCreator, Manifest);
+			Cursors = ParseCursors(Manifest, DefaultFileSystem);
 
 			defaultRules = Exts.Lazy(() => Ruleset.LoadDefaults(this));
 			defaultTerrainInfo = Exts.Lazy(() =>
 			{
-				var items = new Dictionary<string, ITerrainInfo>();
+				var terrainType = ObjectCreator.FindType(Manifest.TerrainFormat + "Loader");
+				var terrainCtor = terrainType?.GetConstructor([typeof(ModData)]);
+				if (terrainType == null || !terrainType.GetInterfaces().Contains(typeof(ITerrainLoader)) || terrainCtor == null)
+					throw new InvalidOperationException($"Unable to find a terrain loader for type '{Manifest.TerrainFormat}'.");
 
+				var items = new Dictionary<string, ITerrainInfo>();
+				var terrainLoader = (ITerrainLoader)terrainCtor.Invoke([this]);
 				foreach (var file in Manifest.TileSets)
 				{
-					var t = TerrainLoader.ParseTerrain(DefaultFileSystem, file);
+					var t = terrainLoader.ParseTerrain(DefaultFileSystem, file);
 					items.Add(t.Id, t);
 				}
 
-				return (IReadOnlyDictionary<string, ITerrainInfo>)(new ReadOnlyDictionary<string, ITerrainInfo>(items));
-			});
-
-			defaultSequences = Exts.Lazy(() =>
-			{
-				var items = DefaultTerrainInfo.ToDictionary(t => t.Key, t => new SequenceProvider(DefaultFileSystem, this, t.Key, null));
-				return (IReadOnlyDictionary<string, SequenceProvider>)(new ReadOnlyDictionary<string, SequenceProvider>(items));
+				return (IReadOnlyDictionary<string, ITerrainInfo>)new ReadOnlyDictionary<string, ITerrainInfo>(items);
 			});
 
 			initialThreadId = Environment.CurrentManagedThreadId;
 		}
 
+		static FrozenDictionary<string, CursorSequence> ParseCursors(Manifest manifest, IReadOnlyFileSystem fileSystem)
+		{
+			var stringPool = new HashSet<string>(); // Reuse common strings in YAML
+			var sequenceYaml = MiniYaml.Merge(manifest.Cursors.Select(
+				s => MiniYaml.FromStream(fileSystem.Open(s), s, stringPool: stringPool)));
+
+			var cursors = new Dictionary<string, CursorSequence>();
+			foreach (var node in sequenceYaml)
+				if (node.Key == "Cursors")
+					foreach (var fileNode in node.Value.Nodes)
+						foreach (var sequenceNode in fileNode.Value.Nodes)
+							cursors.Add(sequenceNode.Key, new CursorSequence(
+								sequenceNode.Key, fileNode.Key, fileNode.Value.Value, sequenceNode.Value));
+
+			return cursors.ToFrozenDictionary();
+		}
+
 		// HACK: Only update the loading screen if we're in the main thread.
-		int initialThreadId;
+		readonly int initialThreadId;
 		internal void HandleLoadingProgress()
 		{
 			if (LoadScreen != null && IsOnMainThread)
@@ -143,34 +165,57 @@ namespace OpenRA
 			// horribly when you use ModData in unexpected ways.
 			ChromeMetrics.Initialize(this);
 			ChromeProvider.Initialize(this);
+			Ui.Initialize(this);
+			FluentProvider.Initialize(Manifest, fileSystem);
 
 			Game.Sound.Initialize(SoundLoaders, fileSystem);
-
-			CursorProvider = new CursorProvider(this);
 		}
 
-		public IEnumerable<string> Languages { get; private set; }
+		public IEnumerable<string> Languages { get; }
 
-		public Map PrepareMap(string uid)
+		public void PrepareMap(Map map)
 		{
 			LoadScreen?.Display();
 
-			if (MapCache[uid].Status != MapStatus.Available)
-				throw new InvalidDataException($"Invalid map uid: {uid}");
-
-			Map map;
-			using (new Support.PerfTimer("Map"))
-				map = new Map(this, MapCache[uid].Package);
-
 			// Reinitialize all our assets
 			InitializeLoaders(map);
+			map.Sequences.LoadSprites();
 
 			// Load music with map assets mounted
 			using (new Support.PerfTimer("Map.Music"))
 				foreach (var entry in map.Rules.Music)
 					entry.Value.Load(map);
+		}
 
-			return map;
+		public MiniYamlNode[][] GetRulesYaml()
+		{
+			var stringPool = new HashSet<string>(); // Reuse common strings in YAML
+			return Manifest.Rules.Select(s => MiniYaml.FromStream(DefaultFileSystem.Open(s), s, stringPool: stringPool).ToArray()).ToArray();
+		}
+
+		/// <summary>Load a cached IGlobalModData instance.</summary>
+		public T GetOrCreate<T>() where T : IGlobalModData
+		{
+			var module = modules.GetOrDefault<T>();
+
+			// Lazily create the default values if not explicitly defined.
+			if (module == null)
+			{
+				module = (T)ObjectCreator.CreateBasic(typeof(T));
+				modules.Add(module);
+			}
+
+			return module;
+		}
+
+		public T GetOrNull<T>() where T : IGlobalModData
+		{
+			return modules.GetOrDefault<T>();
+		}
+
+		public T GetSettings<T>() where T : SettingsModule
+		{
+			return Game.Settings.GetOrCreate<T>(ObjectCreator, Manifest.Id);
 		}
 
 		public void Dispose()
@@ -180,14 +225,18 @@ namespace OpenRA
 
 			ObjectCreator?.Dispose();
 
-			Manifest.Dispose();
+			foreach (var module in modules)
+			{
+				var disposableModule = module as IDisposable;
+				disposableModule?.Dispose();
+			}
 		}
 	}
 
 	public interface ILoadScreen : IDisposable
 	{
 		/// <summary>Initializes the loadscreen with yaml data from the LoadScreen block in mod.yaml.</summary>
-		void Init(ModData m, Dictionary<string, string> info);
+		void Init(Manifest manifest, IReadOnlyFileSystem fileSystem);
 
 		/// <summary>Called at arbitrary times during mod load to rerender the loadscreen.</summary>
 		void Display();
@@ -196,9 +245,14 @@ namespace OpenRA
 		/// Called before loading the mod assets.
 		/// Returns false if mod loading should be aborted (e.g. switching to another mod instead).
 		/// </summary>
-		bool BeforeLoad();
+		bool BeforeLoad(ModData modData);
 
 		/// <summary>Called when the engine expects to connect to a server/replay or load the shellmap.</summary>
 		void StartGame(Arguments args);
+	}
+
+	public interface IFileSystemLoader
+	{
+		void Mount(Manifest manifest, FS fileSystem, ObjectCreator objectCreator);
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,8 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Numerics;
 using OpenRA.GameRules;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
@@ -17,13 +19,14 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Projectiles
 {
+	[Desc("Projectile with customisable acceleration vector.")]
 	public class GravityBombInfo : IProjectileInfo
 	{
 		public readonly string Image = null;
 
 		[SequenceReference(nameof(Image), allowNullImage: true)]
 		[Desc("Loop a randomly chosen sequence of Image from this list while falling.")]
-		public readonly string[] Sequences = { "idle" };
+		public readonly ImmutableArray<string> Sequences = ["idle"];
 
 		[SequenceReference(nameof(Image), allowNullImage: true)]
 		[Desc("Sequence to play when launched. Skipped if null or empty.")]
@@ -46,7 +49,7 @@ namespace OpenRA.Mods.Common.Projectiles
 		public readonly WVec Velocity = WVec.Zero;
 
 		[Desc("Value added to Velocity every tick.")]
-		public readonly WVec Acceleration = new WVec(0, 0, -15);
+		public readonly WVec Acceleration = new(0, 0, -15);
 
 		public IProjectile Create(ProjectileArgs args) { return new GravityBomb(this, args); }
 	}
@@ -58,12 +61,12 @@ namespace OpenRA.Mods.Common.Projectiles
 		readonly ProjectileArgs args;
 		readonly WVec acceleration;
 
-		readonly float3 shadowColor;
+		readonly Vector3 shadowColor;
 		readonly float shadowAlpha;
 
 		WVec velocity;
 
-		[Sync]
+		[VerifySync]
 		WPos pos, lastPos;
 
 		public GravityBomb(GravityBombInfo info, ProjectileArgs args)
@@ -85,8 +88,9 @@ namespace OpenRA.Mods.Common.Projectiles
 					anim.PlayRepeating(info.Sequences.Random(args.SourceActor.World.SharedRandom));
 			}
 
-			shadowColor = new float3(info.ShadowColor.R, info.ShadowColor.G, info.ShadowColor.B) / 255f;
-			shadowAlpha = info.ShadowColor.A;
+			var sColor = info.ShadowColor.ToVector4();
+			shadowColor = sColor.AsVector3();
+			shadowAlpha = sColor.W;
 		}
 
 		public void Tick(World world)
@@ -120,17 +124,22 @@ namespace OpenRA.Mods.Common.Projectiles
 			var world = args.SourceActor.World;
 			if (!world.FogObscures(pos))
 			{
+				var paletteName = info.Palette;
+				if (paletteName != null && info.IsPlayerPalette)
+					paletteName += args.SourceActor.Owner.InternalName;
+
+				var palette = wr.Palette(paletteName);
+
 				if (info.Shadow)
 				{
 					var dat = world.Map.DistanceAboveTerrain(pos);
 					var shadowPos = pos - new WVec(0, 0, dat.Length);
-					foreach (var r in anim.Render(shadowPos, wr.Palette(info.Palette)))
+					foreach (var r in anim.Render(shadowPos, palette))
 						yield return ((IModifyableRenderable)r)
 							.WithTint(shadowColor, ((IModifyableRenderable)r).TintModifiers | TintModifiers.ReplaceColor)
 							.WithAlpha(shadowAlpha);
 				}
 
-				var palette = wr.Palette(info.Palette + (info.IsPlayerPalette ? args.SourceActor.Owner.InternalName : ""));
 				foreach (var r in anim.Render(pos, palette))
 					yield return r;
 			}

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,19 +10,35 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Orders;
 
 namespace OpenRA.Mods.Common.Orders
 {
 	public abstract class OrderGenerator : IOrderGenerator
 	{
+		protected abstract MouseActionType ActionType { get; }
+		readonly GameSettings gameSettings;
+
+		protected OrderGenerator(World world)
+		{
+			gameSettings = Game.Settings.Game;
+			if (gameSettings.MouseControlStyle == MouseControlStyle.Classic)
+				world.Selection.Clear();
+		}
+
+		public MouseButton ActionButton => gameSettings.ResolveActionButton(ActionType);
+		public MouseButton CancelButton => gameSettings.ResolveCancelButton(ActionType);
+
 		public virtual IEnumerable<Order> Order(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
-			if ((mi.Button == MouseButton.Left && mi.Event == MouseInputEvent.Down) || (mi.Button == MouseButton.Right && mi.Event == MouseInputEvent.Up))
+			if (mi.Button == ActionButton && mi.Event == MouseInputEvent.Down)
 				return OrderInner(world, cell, worldPixel, mi);
 
-			return Enumerable.Empty<Order>();
+			if (mi.Button == CancelButton && mi.Event == MouseInputEvent.Up)
+				world.CancelInputMode();
+
+			return [];
 		}
 
 		void IOrderGenerator.Tick(World world) { Tick(world); }

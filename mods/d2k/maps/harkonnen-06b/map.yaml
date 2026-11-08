@@ -1,4 +1,4 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: d2k
 
@@ -33,14 +33,14 @@ Players:
 		LockFaction: True
 		Faction: harkonnen
 		LockColor: True
-		Color: FE0000
+		Color: D64A42
 		Enemies: Ordos Main Base, Ordos Small Base, Smugglers - Enemy to Harkonnen, Smugglers - Enemy to Both, Creeps
 	PlayerReference@Ordos Main Base:
 		Name: Ordos Main Base
 		LockFaction: True
 		Faction: ordos
 		LockColor: True
-		Color: B3EAA5
+		Color: 5A9473
 		Allies: Ordos Small Base
 		Enemies: Harkonnen, Smugglers - Enemy to Ordos, Smugglers - Enemy to Both, Creeps
 		Bot: campaign
@@ -49,7 +49,7 @@ Players:
 		LockFaction: True
 		Faction: ordos
 		LockColor: True
-		Color: B3EAA5
+		Color: 5A9473
 		Allies: Ordos Main Base
 		Enemies: Harkonnen, Smugglers - Enemy to Ordos, Smugglers - Enemy to Both, Creeps
 		Bot: campaign
@@ -59,7 +59,7 @@ Players:
 		LockFaction: True
 		Faction: smuggler
 		LockColor: True
-		Color: 542209
+		Color: 7B2910
 		Bot: campaign
 		Enemies: Creeps
 	PlayerReference@Smugglers - Enemy to Harkonnen:
@@ -68,7 +68,7 @@ Players:
 		LockFaction: True
 		Faction: smuggler
 		LockColor: True
-		Color: 542209
+		Color: 7B2910
 		Enemies: Harkonnen, Creeps
 		Bot: campaign
 	PlayerReference@Smugglers - Enemy to Ordos:
@@ -77,7 +77,7 @@ Players:
 		LockFaction: True
 		Faction: smuggler
 		LockColor: True
-		Color: 542209
+		Color: 7B2910
 		Enemies: Ordos Main Base, Ordos Small Base, Creeps
 		Bot: campaign
 	PlayerReference@Smugglers - Enemy to Both:
@@ -86,7 +86,7 @@ Players:
 		LockFaction: True
 		Faction: smuggler
 		LockColor: True
-		Color: 542209
+		Color: 7B2910
 		Enemies: Harkonnen, Ordos Main Base, Ordos Small Base, Creeps
 		Bot: campaign
 
@@ -394,9 +394,11 @@ Actors:
 	OGunt6: medium_gun_turret
 		Location: 9,17
 		Owner: Ordos Small Base
+		TurretFacing: 512
 	OGunt7: medium_gun_turret
 		Location: 14,17
 		Owner: Ordos Small Base
+		TurretFacing: 512
 	Actor102: wall
 		Location: 15,17
 		Owner: Ordos Small Base
@@ -463,12 +465,6 @@ Actors:
 	SSilo3: silo
 		Location: 51,26
 		Owner: Smugglers - Neutral
-	Actor124: trooper
-		Location: 51,28
-		Owner: Smugglers - Neutral
-	Actor125: light_inf
-		Location: 53,28
-		Owner: Smugglers - Neutral
 	Actor126: wormspawner
 		Location: 76,28
 		Owner: Creeps
@@ -487,23 +483,11 @@ Actors:
 	SPower2: wind_trap
 		Location: 50,30
 		Owner: Smugglers - Neutral
-	Actor132: light_inf
-		Location: 53,30
-		Owner: Smugglers - Neutral
 	SRefinery: refinery
 		Location: 43,33
 		Owner: Smugglers - Neutral
-	Actor134: light_inf
-		Location: 50,33
-		Owner: Smugglers - Neutral
 	Actor135: harvester
 		Location: 46,35
-		Owner: Smugglers - Neutral
-	Actor136: light_inf
-		Location: 48,35
-		Owner: Smugglers - Neutral
-	Actor137: light_inf
-		Location: 52,35
 		Owner: Smugglers - Neutral
 	Actor138: light_inf
 		Location: 42,36
@@ -652,5 +636,43 @@ Actors:
 	OrdosStarportExit: waypoint
 		Owner: Neutral
 		Location: 2,9
+	Smuggler1: trooper
+		Location: 51,28
+		Owner: Smugglers - Neutral
+	Smuggler2: light_inf
+		Location: 53,28
+		Owner: Smugglers - Neutral
+	Smuggler3: light_inf
+		Location: 53,30
+		Owner: Smugglers - Neutral
+	Smuggler4: light_inf
+		Location: 50,33
+		Owner: Smugglers - Neutral
+	Smuggler5: light_inf
+		Location: 48,35
+		Owner: Smugglers - Neutral
+	Smuggler6: light_inf
+		Location: 52,35
+		Owner: Smugglers - Neutral
+	OrdosPatrol1: waypoint
+		Owner: Neutral
+		Location: 26,49
+	OrdosPatrol2: waypoint
+		Owner: Neutral
+		Location: 36,33
+	OrdosPatrol3: waypoint
+		Owner: Neutral
+		Location: 60,29
+	OrdosPatrol4: waypoint
+		Owner: Neutral
+		Location: 82,43
+	Actor4: crate_reveal
+		Owner: Neutral
+		Location: 13,27
+	Actor5: crate
+		Owner: Neutral
+		Location: 82,48
 
 Rules: d2k|rules/campaign-rules.yaml, d2k|rules/campaign-tooltips.yaml, d2k|rules/campaign-palettes.yaml, rules.yaml
+
+FluentMessages: d2k|fluent/lua.ftl, d2k|fluent/campaign.ftl, map.ftl

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Cnc.FileFormats;
 using OpenRA.Primitives;
@@ -73,25 +74,112 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 
 	public class ShpTDSprite
 	{
-		enum Format { XORPrev = 0x20, XORLCW = 0x40, LCW = 0x80 }
+		enum Format : ushort { XORPrev = 0x20, XORLCW = 0x40, LCW = 0x80 }
 
-		class ImageHeader : ISpriteFrame
+		sealed class TrimmedFrame : ISpriteFrame
+		{
+			public SpriteFrameType Type => SpriteFrameType.Indexed8;
+			public Size Size { get; }
+			public Size FrameSize { get; }
+			public Vector2 Offset { get; }
+			public byte[] Data { get; }
+			public bool DisableExportPadding { get { return false; } }
+
+			public TrimmedFrame(ImageHeader header)
+			{
+				var origData = header.Data;
+				var origSize = header.Size;
+				var top = origSize.Height - 1;
+				var bottom = 0;
+				var left = origSize.Width - 1;
+				var right = 0;
+
+				// Scan frame data to find left-, top-, right-, bottom-most
+				// rows/columns with non-zero pixel data.
+				var i = 0;
+				for (var y = 0; y < origSize.Height; y++)
+				{
+					for (var x = 0; x < origSize.Width; x++, i++)
+					{
+						if (origData[i] != 0)
+						{
+							top = Math.Min(y, top);
+							bottom = Math.Max(y, bottom);
+							left = Math.Min(x, left);
+							right = Math.Max(x, right);
+						}
+					}
+				}
+
+				var trimmedWidth = right - left + 1;
+				var trimmedHeight = bottom - top + 1;
+
+				// We must be careful to subract an even number
+				// of rows/columns to avoid sub-pixel offsets.
+				if ((trimmedWidth - origSize.Width) % 2 != 0)
+				{
+					if (left > 0)
+						left--;
+					else
+						right++;
+
+					trimmedWidth++;
+				}
+
+				if ((trimmedHeight - origSize.Height) % 2 != 0)
+				{
+					if (top > 0)
+						top--;
+					else
+						bottom++;
+
+					trimmedHeight++;
+				}
+
+				if (trimmedWidth == origSize.Width && trimmedHeight == origSize.Height)
+				{
+					// Nothing to trim, so copy old data directly.
+					Size = header.Size;
+					FrameSize = header.FrameSize;
+					Offset = header.Offset;
+					Data = header.Data;
+				}
+				else if (trimmedWidth > 0 && trimmedHeight > 0)
+				{
+					// Trim frame.
+					Data = new byte[trimmedWidth * trimmedHeight];
+					for (var y = 0; y < trimmedHeight; y++)
+						Array.Copy(origData, (y + top) * origSize.Width + left, Data, y * trimmedWidth, trimmedWidth);
+
+					Size = new Size(trimmedWidth, trimmedHeight);
+					FrameSize = origSize;
+					Offset = 0.5f * new Vector2(
+						left + right - origSize.Width + 1,
+						top + bottom - origSize.Height + 1);
+
+					if (Offset.X % 1 != 0 || Offset.Y % 1 != 0)
+						throw new InvalidDataException("Trimmed frame has non-integer offset.");
+				}
+			}
+		}
+
+		sealed class ImageHeader : ISpriteFrame
 		{
 			public SpriteFrameType Type => SpriteFrameType.Indexed8;
 			public Size Size => reader.Size;
 			public Size FrameSize => reader.Size;
-			public float2 Offset => float2.Zero;
+			public Vector2 Offset => Vector2.Zero;
 			public byte[] Data { get; set; }
 			public bool DisableExportPadding => false;
 
 			public uint FileOffset;
 			public Format Format;
 
-			public uint RefOffset;
-			public Format RefFormat;
+			public readonly uint RefOffset;
+			public readonly Format RefFormat;
 			public ImageHeader RefImage;
 
-			ShpTDSprite reader;
+			readonly ShpTDSprite reader;
 
 			// Used by ShpWriter
 			public ImageHeader() { }
@@ -115,7 +203,7 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 			}
 		}
 
-		public IReadOnlyList<ISpriteFrame> Frames { get; private set; }
+		public IReadOnlyList<ISpriteFrame> Frames { get; }
 		public readonly Size Size;
 
 		int recurseDepth = 0;
@@ -140,7 +228,7 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 			// Skip eof and zero headers
 			stream.Position += 16;
 
-			var offsets = headers.ToDictionary(h => h.FileOffset, h => h);
+			var offsets = headers.ToDictionary(h => h.FileOffset);
 			for (var i = 0; i < imageCount; i++)
 			{
 				var h = headers[i];
@@ -156,7 +244,7 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 			foreach (var h in headers)
 				Decompress(h);
 
-			Frames = headers;
+			Frames = headers.Select(f => (ISpriteFrame)new TrimmedFrame(f)).ToArray();
 		}
 
 		void Decompress(ImageHeader h)
@@ -172,26 +260,26 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 			{
 				case Format.XORPrev:
 				case Format.XORLCW:
+				{
+					if (h.RefImage.Data == null)
 					{
-						if (h.RefImage.Data == null)
-						{
-							++recurseDepth;
-							Decompress(h.RefImage);
-							--recurseDepth;
-						}
-
-						h.Data = CopyImageData(h.RefImage.Data);
-						XORDeltaCompression.DecodeInto(shpBytes, h.Data, (int)(h.FileOffset - shpBytesFileOffset));
-						break;
+						++recurseDepth;
+						Decompress(h.RefImage);
+						--recurseDepth;
 					}
+
+					h.Data = CopyImageData(h.RefImage.Data);
+					XORDeltaCompression.DecodeInto(shpBytes, h.Data, (int)(h.FileOffset - shpBytesFileOffset));
+					break;
+				}
 
 				case Format.LCW:
-					{
-						var imageBytes = new byte[Size.Width * Size.Height];
-						LCWCompression.DecodeInto(shpBytes, imageBytes, (int)(h.FileOffset - shpBytesFileOffset));
-						h.Data = imageBytes;
-						break;
-					}
+				{
+					var imageBytes = new byte[Size.Width * Size.Height];
+					LCWCompression.DecodeInto(shpBytes, imageBytes, (int)(h.FileOffset - shpBytesFileOffset));
+					h.Data = imageBytes;
+					break;
+				}
 
 				default:
 					throw new InvalidDataException();
@@ -207,7 +295,7 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 
 		public static void Write(Stream s, Size size, IEnumerable<byte[]> frames)
 		{
-			var compressedFrames = frames.Select(f => LCWCompression.Encode(f)).ToList();
+			var compressedFrames = frames.Select(LCWCompression.Encode).ToList();
 
 			// note: end-of-file and all-zeroes headers
 			var dataOffset = 14 + (compressedFrames.Count + 2) * 8;
@@ -232,7 +320,7 @@ namespace OpenRA.Mods.Cnc.SpriteLoaders
 				var eof = new ImageHeader { FileOffset = (uint)dataOffset };
 				eof.WriteTo(bw);
 
-				var allZeroes = new ImageHeader { };
+				var allZeroes = new ImageHeader();
 				allZeroes.WriteTo(bw);
 
 				foreach (var f in compressedFrames)

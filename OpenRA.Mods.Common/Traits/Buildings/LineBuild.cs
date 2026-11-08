@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Traits;
@@ -27,7 +28,7 @@ namespace OpenRA.Mods.Common.Traits
 		readonly Actor[] parents = null;
 
 		public LineBuildParentInit(Actor[] value)
-			: base(new string[0])
+			: base([])
 		{
 			parents = value;
 		}
@@ -38,7 +39,7 @@ namespace OpenRA.Mods.Common.Traits
 				return parents;
 
 			var sma = world.WorldActor.Trait<SpawnMapActors>();
-			return value.Select(n => sma.Actors[n]).ToArray();
+			return Value.Select(n => sma.Actors[n]).ToArray();
 		}
 	}
 
@@ -55,7 +56,7 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly int Range = 5;
 
 		[Desc("LineBuildNode 'Types' to attach to.")]
-		public readonly HashSet<string> NodeTypes = new HashSet<string> { "wall" };
+		public readonly FrozenSet<string> NodeTypes = new HashSet<string> { "wall" }.ToFrozenSet();
 
 		[ActorReference(typeof(LineBuildInfo))]
 		[Desc("Actor type for line-built segments (defaults to same actor).")]
@@ -70,7 +71,7 @@ namespace OpenRA.Mods.Common.Traits
 	public class LineBuild : INotifyKilled, INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyLineBuildSegmentsChanged
 	{
 		readonly LineBuildInfo info;
-		readonly Actor[] parentNodes = new Actor[0];
+		readonly Actor[] parentNodes = [];
 		HashSet<Actor> segments;
 
 		public LineBuild(ActorInitializer init, LineBuildInfo info)
@@ -83,8 +84,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		void INotifyLineBuildSegmentsChanged.SegmentAdded(Actor self, Actor segment)
 		{
-			if (segments == null)
-				segments = new HashSet<Actor>();
+			segments ??= [];
 
 			segments.Add(segment);
 		}

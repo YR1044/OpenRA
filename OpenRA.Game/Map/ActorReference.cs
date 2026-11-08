@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,7 +14,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
+using System.Runtime.CompilerServices;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
@@ -22,23 +22,23 @@ namespace OpenRA
 {
 	public interface ISuppressInitExport { }
 
-	public class ActorReference : IEnumerable
+	public class ActorReference : IEnumerable<object>
 	{
 		public string Type;
-		Lazy<TypeDictionary> initDict;
+		readonly Lazy<TypeDictionary> initDict;
 
 		internal TypeDictionary InitDict => initDict.Value;
 
 		public ActorReference(string type)
-			: this(type, new Dictionary<string, MiniYaml>()) { }
+			: this(type, new MiniYaml("")) { }
 
-		public ActorReference(string type, Dictionary<string, MiniYaml> inits)
+		public ActorReference(string type, MiniYaml inits)
 		{
 			Type = type;
 			initDict = Exts.Lazy(() =>
 			{
 				var dict = new TypeDictionary();
-				foreach (var i in inits)
+				foreach (var i in inits.Nodes)
 				{
 					var init = LoadInit(i.Key, i.Value);
 					if (init is ISingleInstanceInit && dict.Contains(init.GetType()))
@@ -54,13 +54,8 @@ namespace OpenRA
 		public ActorReference(string type, TypeDictionary inits)
 		{
 			Type = type;
-			initDict = new Lazy<TypeDictionary>(() =>
-			{
-				var dict = new TypeDictionary();
-				foreach (var i in inits)
-					dict.Add(i);
-				return dict;
-			});
+			var initsClone = new TypeDictionary(inits);
+			initDict = Exts.Lazy(() => initsClone);
 		}
 
 		static ActorInit LoadInit(string initName, MiniYaml initYaml)
@@ -70,50 +65,47 @@ namespace OpenRA
 			if (type == null)
 				throw new InvalidDataException($"Unknown initializer type '{initInstance[0]}Init'");
 
-			var init = (ActorInit)FormatterServices.GetUninitializedObject(type);
+			var init = (ActorInit)RuntimeHelpers.GetUninitializedObject(type);
 			if (initInstance.Length > 1)
-				type.GetField("InstanceName").SetValue(init, initInstance[1]);
+				type.GetField(nameof(ActorInit.InstanceName)).SetValue(init, initInstance[1]);
 
-			var loader = type.GetMethod("Initialize", new[] { typeof(MiniYaml) });
+			var loader = type.GetMethod("Initialize", [typeof(MiniYaml)]);
 			if (loader == null)
 				throw new InvalidDataException($"{initInstance[0]}Init does not define a yaml-assignable type.");
 
-			loader.Invoke(init, new[] { initYaml });
+			loader.Invoke(init, [initYaml]);
 			return init;
 		}
 
 		public MiniYaml Save(Func<ActorInit, bool> initFilter = null)
 		{
-			var ret = new MiniYaml(Type);
+			var nodes = new List<MiniYamlNode>();
 			foreach (var o in initDict.Value)
 			{
-				var init = o as ActorInit;
-				if (init == null || o is ISuppressInitExport)
+				if (o is not ActorInit init || o is ISuppressInitExport)
 					continue;
 
 				if (initFilter != null && !initFilter(init))
 					continue;
 
 				var initTypeName = init.GetType().Name;
-				var initName = initTypeName.Substring(0, initTypeName.Length - 4);
+				var initName = initTypeName[..^4];
 				if (!string.IsNullOrEmpty(init.InstanceName))
 					initName += ActorInfo.TraitInstanceSeparator + init.InstanceName;
 
-				ret.Nodes.Add(new MiniYamlNode(initName, init.Save()));
+				nodes.Add(new MiniYamlNode(initName, init.Save()));
 			}
 
-			return ret;
+			return new MiniYaml(Type, nodes);
 		}
 
-		public IEnumerator GetEnumerator() { return initDict.Value.GetEnumerator(); }
+		public IEnumerator<object> GetEnumerator() { return initDict.Value.GetEnumerator(); }
+
+		IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
 
 		public ActorReference Clone()
 		{
-			var clone = new ActorReference(Type);
-			foreach (var init in initDict.Value)
-				clone.initDict.Value.Add(init);
-
-			return clone;
+			return new ActorReference(Type, initDict.Value);
 		}
 
 		public void Add(ActorInit init)
@@ -122,6 +114,15 @@ namespace OpenRA
 				throw new InvalidDataException($"Duplicate initializer '{init.GetType().Name}'");
 
 			InitDict.Add(init);
+		}
+
+		public void Replace<T>(T init) where T : ActorInit, ISingleInstanceInit
+		{
+			var original = GetOrDefault<T>();
+			if (original != null)
+				Remove(original);
+
+			Add(init);
 		}
 
 		public void Remove(ActorInit o) { initDict.Value.Remove(o); }
@@ -138,7 +139,7 @@ namespace OpenRA
 			return removed;
 		}
 
-		public IEnumerable<T> GetAll<T>() where T : ActorInit
+		public IReadOnlyCollection<T> GetAll<T>() where T : ActorInit
 		{
 			return initDict.Value.WithInterface<T>();
 		}
@@ -151,8 +152,9 @@ namespace OpenRA
 			// If a more specific init is not available, fall back to an unnamed init.
 			// If duplicate inits are defined, take the last to match standard yaml override expectations
 			if (info != null && !string.IsNullOrEmpty(info.InstanceName))
-				return inits.LastOrDefault(i => i.InstanceName == info.InstanceName) ??
-				       inits.LastOrDefault(i => string.IsNullOrEmpty(i.InstanceName));
+				return
+					inits.LastOrDefault(i => i.InstanceName == info.InstanceName) ??
+					inits.LastOrDefault(i => string.IsNullOrEmpty(i.InstanceName));
 
 			// Untagged traits will only use untagged inits
 			return inits.LastOrDefault(i => string.IsNullOrEmpty(i.InstanceName));

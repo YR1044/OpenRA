@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,16 +9,17 @@
  */
 #endregion
 
-using System.Collections.Generic;
+using System.Collections.Frozen;
+using System.Collections.Immutable;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	public class MapEditorDataInfo : TraitInfo<MapEditorData>
 	{
-		public readonly HashSet<string> RequireTilesets = null;
-		public readonly HashSet<string> ExcludeTilesets = null;
-		public readonly string[] Categories;
+		public readonly FrozenSet<string> RequireTilesets = null;
+		public readonly FrozenSet<string> ExcludeTilesets = null;
+		public readonly ImmutableArray<string> Categories;
 	}
 
 	public class MapEditorData { }

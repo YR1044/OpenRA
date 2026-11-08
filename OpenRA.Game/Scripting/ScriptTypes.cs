@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,8 @@
 #endregion
 
 using System;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Eluant;
 
 namespace OpenRA.Scripting
@@ -26,8 +28,8 @@ namespace OpenRA.Scripting
 
 		public static bool TryGetClrValue<T>(this LuaValue value, out T clrObject)
 		{
-			var ret = value.TryGetClrValue(typeof(T), out object temp);
-			clrObject = ret ? (T)temp : default(T);
+			var ret = value.TryGetClrValue(typeof(T), out var temp);
+			clrObject = ret ? (T)temp : default;
 			return ret;
 		}
 
@@ -40,13 +42,10 @@ namespace OpenRA.Scripting
 				t = nullable;
 
 			// Value wraps a CLR object
-			if (value.TryGetClrObject(out var temp))
+			if (value.TryGetClrObject(out var temp) && temp.GetType() == t)
 			{
-				if (temp.GetType() == t)
-				{
-					clrObject = temp;
-					return true;
-				}
+				clrObject = temp;
+				return true;
 			}
 
 			if (value is LuaNil && !t.IsValueType)
@@ -61,30 +60,33 @@ namespace OpenRA.Scripting
 				return true;
 			}
 
-			if (value is LuaNumber && t.IsAssignableFrom(typeof(double)))
+			if (value is LuaNumber)
 			{
-				clrObject = value.ToNumber().Value;
-				return true;
-			}
+				if (t.IsAssignableFrom(typeof(double)))
+				{
+					clrObject = value.ToNumber().Value;
+					return true;
+				}
 
-			// Need an explicit test for double -> int
-			// TODO: Lua 5.3 will introduce an integer type, so this will be able to go away
-			if (value is LuaNumber && t.IsAssignableFrom(typeof(int)))
-			{
-				clrObject = (int)value.ToNumber().Value;
-				return true;
-			}
+				// Need an explicit test for double -> int
+				// TODO: Lua 5.3 will introduce an integer type, so this will be able to go away
+				if (t.IsAssignableFrom(typeof(int)))
+				{
+					clrObject = (int)value.ToNumber().Value;
+					return true;
+				}
 
-			if (value is LuaNumber && t.IsAssignableFrom(typeof(short)))
-			{
-				clrObject = (short)value.ToNumber().Value;
-				return true;
-			}
+				if (t.IsAssignableFrom(typeof(short)))
+				{
+					clrObject = (short)value.ToNumber().Value;
+					return true;
+				}
 
-			if (value is LuaNumber && t.IsAssignableFrom(typeof(byte)))
-			{
-				clrObject = (byte)value.ToNumber().Value;
-				return true;
+				if (t.IsAssignableFrom(typeof(byte)))
+				{
+					clrObject = (byte)value.ToNumber().Value;
+					return true;
+				}
 			}
 
 			if (value is LuaString && t.IsAssignableFrom(typeof(string)))
@@ -105,11 +107,11 @@ namespace OpenRA.Scripting
 				return true;
 			}
 
-			// Translate LuaTable<int, object> -> object[]
-			if (value is LuaTable && t.IsArray)
+			// Translate LuaTable<int, object> -> object[] or ImmutableArray<object>
+			var isImmutableArray = t.IsGenericType && t.GetGenericTypeDefinition() == typeof(ImmutableArray<>);
+			if (value is LuaTable table && (t.IsArray || isImmutableArray))
 			{
-				var innerType = t.GetElementType();
-				var table = (LuaTable)value;
+				var innerType = isImmutableArray ? t.GetGenericArguments()[0] : t.GetElementType();
 				var array = Array.CreateInstance(innerType, table.Count);
 				var i = 0;
 
@@ -123,7 +125,7 @@ namespace OpenRA.Scripting
 						else
 						{
 							var elementHasClrValue = kv.Value.TryGetClrValue(innerType, out element);
-							if (!elementHasClrValue || !(element is LuaValue))
+							if (!elementHasClrValue || element is not LuaValue)
 								kv.Value.Dispose();
 							if (!elementHasClrValue)
 								throw new LuaException($"Unable to convert table value of type {kv.Value.WrappedClrType()} to type {innerType}");
@@ -133,7 +135,12 @@ namespace OpenRA.Scripting
 					}
 				}
 
-				clrObject = array;
+				clrObject = isImmutableArray
+					? typeof(ImmutableCollectionsMarshal)
+						.GetMethod(nameof(ImmutableCollectionsMarshal.AsImmutableArray))
+						.MakeGenericMethod(innerType)
+						.Invoke(null, [array])
+					: array;
 				return true;
 			}
 
@@ -146,23 +153,25 @@ namespace OpenRA.Scripting
 
 		public static LuaValue ToLuaValue(this object obj, ScriptContext context)
 		{
-			if (obj is LuaValue)
-				return (LuaValue)obj;
+			{
+				if (obj is LuaValue v)
+					return v;
 
-			if (obj == null)
-				return LuaNil.Instance;
+				if (obj == null)
+					return LuaNil.Instance;
 
-			if (obj is double)
-				return (double)obj;
+				if (obj is double d)
+					return d;
 
-			if (obj is int)
-				return (int)obj;
+				if (obj is int i)
+					return i;
 
-			if (obj is bool)
-				return (bool)obj;
+				if (obj is bool b)
+					return b;
 
-			if (obj is string)
-				return (string)obj;
+				if (obj is string s)
+					return s;
+			}
 
 			if (obj is IScriptBindable)
 			{
@@ -173,9 +182,8 @@ namespace OpenRA.Scripting
 				return new LuaCustomClrObject(obj);
 			}
 
-			if (obj is Array)
+			if (obj is Array array)
 			{
-				var array = (Array)obj;
 				var i = 1;
 				var table = context.CreateTable();
 

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 using OpenRA.Traits;
@@ -17,63 +18,60 @@ namespace OpenRA.Mods.Common.Graphics
 {
 	public class SelectionBarsAnnotationRenderable : IRenderable, IFinalizedRenderable
 	{
-		readonly WPos pos;
 		readonly Actor actor;
-		readonly bool displayHealth;
-		readonly bool displayExtra;
 		readonly Rectangle decorationBounds;
 
 		public SelectionBarsAnnotationRenderable(Actor actor, Rectangle decorationBounds, bool displayHealth, bool displayExtra)
 			: this(actor.CenterPosition, actor, decorationBounds)
 		{
-			this.displayHealth = displayHealth;
-			this.displayExtra = displayExtra;
+			DisplayHealth = displayHealth;
+			DisplayExtra = displayExtra;
 		}
 
 		public SelectionBarsAnnotationRenderable(WPos pos, Actor actor, Rectangle decorationBounds)
 		{
-			this.pos = pos;
+			Pos = pos;
 			this.actor = actor;
 			this.decorationBounds = decorationBounds;
 		}
 
-		public WPos Pos => pos;
-		public bool DisplayHealth => displayHealth;
-		public bool DisplayExtra => displayExtra;
+		public WPos Pos { get; }
+		public bool DisplayHealth { get; }
+		public bool DisplayExtra { get; }
 
 		public int ZOffset => 0;
 		public bool IsDecoration => true;
 
 		public IRenderable WithZOffset(int newOffset) { return this; }
-		public IRenderable OffsetBy(in WVec vec) { return new SelectionBarsAnnotationRenderable(pos + vec, actor, decorationBounds); }
+		public IRenderable OffsetBy(in WVec vec) { return new SelectionBarsAnnotationRenderable(Pos + vec, actor, decorationBounds); }
 		public IRenderable AsDecoration() { return this; }
 
-		void DrawExtraBars(WorldRenderer wr, float2 start, float2 end)
+		void DrawExtraBars(Vector2 start, Vector2 end)
 		{
 			foreach (var extraBar in actor.TraitsImplementing<ISelectionBar>())
 			{
 				var value = extraBar.GetValue();
 				if (value != 0 || extraBar.DisplayWhenEmpty)
 				{
-					var offset = new float2(0, 4);
+					var offset = new Vector2(0, 4);
 					start += offset;
 					end += offset;
-					DrawSelectionBar(wr, start, end, extraBar.GetValue(), extraBar.GetColor());
+					DrawSelectionBar(start, end, extraBar.GetValue(), extraBar.GetColor());
 				}
 			}
 		}
 
-		void DrawSelectionBar(WorldRenderer wr, float2 start, float2 end, float value, Color barColor)
+		static void DrawSelectionBar(Vector2 start, Vector2 end, float value, Color barColor)
 		{
 			var c = Color.FromArgb(128, 30, 30, 30);
 			var c2 = Color.FromArgb(128, 10, 10, 10);
-			var p = new float2(0, -4);
-			var q = new float2(0, -3);
-			var r = new float2(0, -2);
+			var p = new Vector2(0, -4);
+			var q = new Vector2(0, -3);
+			var r = new Vector2(0, -2);
 
 			var barColor2 = Color.FromArgb(255, barColor.R / 2, barColor.G / 2, barColor.B / 2);
 
-			var z = float3.Lerp(start, end, value);
+			var z = Vector2.Lerp(start, end, value);
 			var cr = Game.Renderer.RgbaColorRenderer;
 			cr.DrawLine(start + p, end + p, 1, c);
 			cr.DrawLine(start + q, end + q, 1, c2);
@@ -84,25 +82,22 @@ namespace OpenRA.Mods.Common.Graphics
 			cr.DrawLine(start + r, z + r, 1, barColor2);
 		}
 
-		Color GetHealthColor(IHealth health)
+		static Color GetHealthColor(IHealth health)
 		{
-			if (Game.Settings.Game.UsePlayerStanceColors)
-				return actor.Owner.PlayerRelationshipColor(actor);
-
 			return health.DamageState == DamageState.Critical ? Color.Red :
 				health.DamageState == DamageState.Heavy ? Color.Yellow : Color.LimeGreen;
 		}
 
-		void DrawHealthBar(WorldRenderer wr, IHealth health, float2 start, float2 end)
+		static void DrawHealthBar(IHealth health, Vector2 start, Vector2 end)
 		{
 			if (health == null || health.IsDead)
 				return;
 
 			var c = Color.FromArgb(128, 30, 30, 30);
 			var c2 = Color.FromArgb(128, 10, 10, 10);
-			var p = new float2(0, -4);
-			var q = new float2(0, -3);
-			var r = new float2(0, -2);
+			var p = new Vector2(0, -4);
+			var q = new Vector2(0, -3);
+			var r = new Vector2(0, -2);
 
 			var healthColor = GetHealthColor(health);
 			var healthColor2 = Color.FromArgb(
@@ -111,7 +106,7 @@ namespace OpenRA.Mods.Common.Graphics
 				healthColor.G / 2,
 				healthColor.B / 2);
 
-			var z = float3.Lerp(start, end, (float)health.HP / health.MaxHP);
+			var z = Vector2.Lerp(start, end, (float)health.HP / health.MaxHP);
 
 			var cr = Game.Renderer.RgbaColorRenderer;
 			cr.DrawLine(start + p, end + p, 1, c);
@@ -130,7 +125,7 @@ namespace OpenRA.Mods.Common.Graphics
 					deltaColor.R / 2,
 					deltaColor.G / 2,
 					deltaColor.B / 2);
-				var zz = float3.Lerp(start, end, (float)health.DisplayHP / health.MaxHP);
+				var zz = Vector2.Lerp(start, end, (float)health.DisplayHP / health.MaxHP);
 
 				cr.DrawLine(z + p, zz + p, 1, deltaColor2);
 				cr.DrawLine(z + q, zz + q, 1, deltaColor);
@@ -145,14 +140,14 @@ namespace OpenRA.Mods.Common.Graphics
 				return;
 
 			var health = actor.TraitOrDefault<IHealth>();
-			var start = wr.Viewport.WorldToViewPx(new float2(decorationBounds.Left + 1, decorationBounds.Top));
-			var end = wr.Viewport.WorldToViewPx(new float2(decorationBounds.Right - 1, decorationBounds.Top));
+			var start = wr.Viewport.WorldToViewPx(new Vector3(decorationBounds.Left + 1, decorationBounds.Top, 0)).ToVector2();
+			var end = wr.Viewport.WorldToViewPx(new Vector3(decorationBounds.Right - 1, decorationBounds.Top, 0)).ToVector2();
 
 			if (DisplayHealth)
-				DrawHealthBar(wr, health, start, end);
+				DrawHealthBar(health, start, end);
 
 			if (DisplayExtra)
-				DrawExtraBars(wr, start, end);
+				DrawExtraBars(start, end);
 		}
 
 		public void RenderDebugGeometry(WorldRenderer wr) { }

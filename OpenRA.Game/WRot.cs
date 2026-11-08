@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -24,6 +24,9 @@ namespace OpenRA
 		// Internal calculations use the quaternion form
 		readonly int x, y, z, w;
 
+		/// <summary>
+		/// Construct a rotation from Euler angles.
+		/// </summary>
 		public WRot(WAngle roll, WAngle pitch, WAngle yaw)
 		{
 			Roll = roll;
@@ -48,6 +51,21 @@ namespace OpenRA
 			w = (int)((cr * cp * cy + sr * sp * sy) / 1048576);
 		}
 
+		/// <summary>
+		/// Construct a rotation from an axis and angle.
+		/// The axis is expected to be normalized to length 1024.
+		/// </summary>
+		public WRot(WVec axis, WAngle angle)
+		{
+			// Angles increase clockwise
+			x = axis.X * new WAngle(-angle.Angle / 2).Sin() / 1024;
+			y = axis.Y * new WAngle(-angle.Angle / 2).Sin() / 1024;
+			z = axis.Z * new WAngle(-angle.Angle / 2).Sin() / 1024;
+			w = new WAngle(-angle.Angle / 2).Cos();
+
+			(Roll, Pitch, Yaw) = QuaternionToEuler(x, y, z, w);
+		}
+
 		WRot(int x, int y, int z, int w)
 		{
 			this.x = x;
@@ -55,6 +73,11 @@ namespace OpenRA
 			this.z = z;
 			this.w = w;
 
+			(Roll, Pitch, Yaw) = QuaternionToEuler(x, y, z, w);
+		}
+
+		static (WAngle Roll, WAngle Pitch, WAngle Yaw) QuaternionToEuler(int x, int y, int z, int w)
+		{
 			// Theoretically 1024 squared, but may differ slightly due to rounding
 			var lsq = x * x + y * y + z * z + w * w;
 
@@ -64,9 +87,11 @@ namespace OpenRA
 			var sycp = 2 * (w * z + x * y);
 			var cycp = lsq - 2 * (y * y + z * z);
 
-			Roll = -WAngle.ArcTan(srcp, crcp);
-			Pitch = -(Math.Abs(sp) >= 1024 ? new WAngle(Math.Sign(sp) * 256) : WAngle.ArcSin(sp));
-			Yaw = -WAngle.ArcTan(sycp, cycp);
+			var roll = -WAngle.ArcTan(srcp, crcp);
+			var pitch = -(Math.Abs(sp) >= 1024 ? new WAngle(Math.Sign(sp) * 256) : WAngle.ArcSin(sp));
+			var yaw = -WAngle.ArcTan(sycp, cycp);
+
+			return (roll, pitch, yaw);
 		}
 
 		WRot(int x, int y, int z, int w, WAngle roll, WAngle pitch, WAngle yaw)
@@ -80,7 +105,7 @@ namespace OpenRA
 			Yaw = yaw;
 		}
 
-		public static readonly WRot None = new WRot(WAngle.Zero, WAngle.Zero, WAngle.Zero);
+		public static readonly WRot None = new(WAngle.Zero, WAngle.Zero, WAngle.Zero);
 
 		public static WRot FromFacing(int facing) { return new WRot(WAngle.Zero, WAngle.Zero, WAngle.FromFacing(facing)); }
 		public static WRot FromYaw(WAngle yaw) { return new WRot(WAngle.Zero, WAngle.Zero, yaw); }
@@ -132,28 +157,26 @@ namespace OpenRA
 			var lsq = x * x + y * y + z * z + w * w;
 
 			// Quaternion components use 10 bits, so there's no risk of overflow
-			#pragma warning disable SA1115 // Allow blank lines to visually separate matrix rows
 			mtx = new Int32Matrix4x4(
 				lsq - 2 * (y * y + z * z),
 				2 * (x * y + z * w),
 				2 * (x * z - y * w),
 				0,
-
+				/* row */
 				2 * (x * y - z * w),
 				lsq - 2 * (x * x + z * z),
 				2 * (y * z + x * w),
 				0,
-
+				/* row */
 				2 * (x * z + y * w),
 				2 * (y * z - x * w),
 				lsq - 2 * (x * x + y * y),
 				0,
-
+				/* row */
 				0,
 				0,
 				0,
 				lsq);
-			#pragma warning restore SA1115
 		}
 
 		public Int32Matrix4x4 AsMatrix()
@@ -165,8 +188,35 @@ namespace OpenRA
 		public override int GetHashCode() { return Roll.GetHashCode() ^ Pitch.GetHashCode() ^ Yaw.GetHashCode(); }
 
 		public bool Equals(WRot other) { return other == this; }
-		public override bool Equals(object obj) { return obj is WRot && Equals((WRot)obj); }
+		public override bool Equals(object obj) { return obj is WRot rot && Equals(rot); }
 
 		public override string ToString() { return Roll + "," + Pitch + "," + Yaw; }
+
+		public static WRot SLerp(in WRot a, in WRot b, int mul, int div)
+		{
+			// This implements the standard spherical linear interpolation
+			// between two quaternions, accounting for OpenRA's integer math
+			// conventions and WRot always using (nearly) normalized quaternions
+			var dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+			var flip = dot >= 0 ? 1 : -1;
+
+			// a and b describe the same rotation
+			if (flip * dot >= 1024 * 1024)
+				return a;
+
+			var theta = WAngle.ArcCos(dot / 1024);
+			var s1 = new WAngle((div - mul) * theta.Angle / div).Sin();
+			var s2 = new WAngle(mul * theta.Angle / div).Sin();
+			var s3 = theta.Sin();
+
+			var x = ((long)a.x * s1 + flip * b.x * s2) / s3;
+			var y = ((long)a.y * s1 + flip * b.y * s2) / s3;
+			var z = ((long)a.z * s1 + flip * b.z * s2) / s3;
+			var w = ((long)a.w * s1 + flip * b.w * s2) / s3;
+
+			// Normalize to 1024 == 1.0
+			var l = Exts.ISqrt(x * x + y * y + z * z + w * w);
+			return new WRot((int)(1024 * x / l), (int)(1024 * y / l), (int)(1024 * z / l), (int)(1024 * w / l));
+		}
 	}
 }

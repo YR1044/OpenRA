@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,10 +10,10 @@
 #endregion
 
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using OpenRA.FileFormats;
+using OpenRA.FileSystem;
+using OpenRA.Mods.Common.FileSystem;
 using OpenRA.Mods.Common.Widgets.Logic;
 using OpenRA.Widgets;
 
@@ -22,13 +22,12 @@ namespace OpenRA.Mods.Common.LoadScreens
 	public class BlankLoadScreen : ILoadScreen
 	{
 		public LaunchArguments Launch;
-		protected ModData ModData { get; private set; }
-
+		protected IReadOnlyFileSystem fileSystem;
 		bool initialized;
 
-		public virtual void Init(ModData modData, Dictionary<string, string> info)
+		public virtual void Init(Manifest manifest, IReadOnlyFileSystem fileSystem)
 		{
-			ModData = modData;
+			this.fileSystem = fileSystem;
 		}
 
 		public virtual void Display()
@@ -83,13 +82,13 @@ namespace OpenRA.Mods.Common.LoadScreens
 				}
 				catch { }
 
-				if (ReplayUtils.PromptConfirmReplayCompatibility(replayMeta, Game.LoadShellMap))
+				if (ReplayUtils.PromptConfirmReplayCompatibility(replayMeta, Game.ModData, Game.LoadShellMap))
 					Game.JoinReplay(Launch.Replay);
 
 				if (replayMeta != null)
 				{
-					var mod = replayMeta.GameInfo.Mod;
-					if (mod != null && mod != Game.ModData.Manifest.Id && Game.Mods.ContainsKey(mod))
+					var modID = replayMeta.GameInfo.Mod;
+					if (modID != null && modID != Game.ModData.Manifest.Id && Game.Mods.TryGetValue(modID, out var mod))
 						Game.InitializeMod(mod, args);
 				}
 
@@ -108,12 +107,12 @@ namespace OpenRA.Mods.Common.LoadScreens
 			GC.SuppressFinalize(this);
 		}
 
-		public virtual bool BeforeLoad()
+		public virtual bool BeforeLoad(ModData modData)
 		{
 			var graphicSettings = Game.Settings.Graphics;
 
 			// Reset the UI scaling if the user has configured a UI scale that pushes us below the minimum allowed effective resolution
-			var minResolution = ModData.Manifest.Get<WorldViewportSizes>().MinEffectiveResolution;
+			var minResolution = modData.GetOrCreate<WorldViewportSizes>().MinEffectiveResolution;
 			var resolution = Game.Renderer.Resolution;
 			if ((resolution.Width < minResolution.Width || resolution.Height < minResolution.Height) && Game.Settings.Graphics.UIScale > 1.0f)
 			{
@@ -126,21 +125,10 @@ namespace OpenRA.Mods.Common.LoadScreens
 			if (graphicSettings.GLProfile != GLProfile.Automatic && graphicSettings.GLProfile != Game.Renderer.GLProfile)
 				graphicSettings.GLProfile = GLProfile.Automatic;
 
-			// If a ModContent section is defined then we need to make sure that the
-			// required content is installed or switch to the defined content installer.
-			if (!ModData.Manifest.Contains<ModContent>())
+			if (modData.FileSystemLoader is not IFileSystemExternalContent content)
 				return true;
 
-			var content = ModData.Manifest.Get<ModContent>();
-			var contentInstalled = content.Packages
-				.Where(p => p.Value.Required)
-				.All(p => p.Value.TestFiles.All(f => File.Exists(Platform.ResolvePath(f))));
-
-			if (contentInstalled)
-				return true;
-
-			Game.InitializeMod(content.ContentInstallerMod, new Arguments(new[] { "Content.Mod=" + ModData.Manifest.Id }));
-			return false;
+			return !content.InstallContentIfRequired(modData);
 		}
 	}
 }

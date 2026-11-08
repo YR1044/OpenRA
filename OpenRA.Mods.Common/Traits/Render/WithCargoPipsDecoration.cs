@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using OpenRA.Graphics;
 using OpenRA.Traits;
@@ -36,7 +37,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 
 		[SequenceReference(nameof(Image), dictionaryReference: LintDictionaryReference.Values)]
 		[Desc("Pip sequence to use for specific passenger actors.")]
-		public readonly Dictionary<string, string> CustomPipSequences = new Dictionary<string, string>();
+		public readonly FrozenDictionary<string, string> CustomPipSequences = FrozenDictionary<string, string>.Empty;
 
 		[PaletteReference]
 		public readonly string Palette = "chrome";
@@ -84,14 +85,14 @@ namespace OpenRA.Mods.Common.Traits.Render
 			pips.PlayRepeating(Info.EmptySequence);
 
 			var palette = wr.Palette(Info.Palette);
-			var pipSize = pips.Image.Size.XY.ToInt2();
+			var pipSize = int2.FromVector(pips.Image.Size);
 			var pipStride = Info.PipStride != int2.Zero ? Info.PipStride : new int2(pipSize.X, 0);
 
 			screenPos -= pipSize / 2;
 			for (var i = 0; i < pipCount; i++)
 			{
 				pips.PlayRepeating(GetPipSequence(i));
-				yield return new UISpriteRenderable(pips.Image, self.CenterPosition, screenPos, 0, palette);
+				yield return new UISpriteRenderable(pips.Image, self.CenterPosition, screenPos.ToVector2(), 0, palette);
 
 				screenPos += pipStride;
 			}

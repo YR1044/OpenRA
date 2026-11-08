@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,10 +12,11 @@
 using System.Collections.Generic;
 using OpenRA.Graphics;
 
-namespace OpenRA
+namespace OpenRA.Orders
 {
 	public interface IOrderGenerator
 	{
+		MouseButton ActionButton { get; }
 		IEnumerable<Order> Order(World world, CPos cell, int2 worldPixel, MouseInput mi);
 		void Tick(World world);
 		IEnumerable<IRenderable> Render(WorldRenderer wr, World world);

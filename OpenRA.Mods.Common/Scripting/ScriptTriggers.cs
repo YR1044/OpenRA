@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -21,10 +21,10 @@ namespace OpenRA.Mods.Common.Scripting
 {
 	public enum Trigger
 	{
-		OnIdle, OnDamaged, OnKilled, OnProduction, OnOtherProduction, OnPlayerWon, OnPlayerLost,
+		OnIdle, OnDamaged, OnKilled, OnProduction, OnOtherProduction, OnBuildingPlaced, OnPlayerWon, OnPlayerLost,
 		OnObjectiveAdded, OnObjectiveCompleted, OnObjectiveFailed, OnCapture, OnInfiltrated,
 		OnAddedToWorld, OnRemovedFromWorld, OnDiscovered, OnPlayerDiscovered,
-		OnPassengerEntered, OnPassengerExited, OnSold, OnTimerExpired
+		OnPassengerEntered, OnPassengerExited, OnSold, OnSupportPowerActivated, OnTimerExpired
 	}
 
 	[Desc("Allows map scripts to attach triggers to this actor via the Triggers global.")]
@@ -33,9 +33,9 @@ namespace OpenRA.Mods.Common.Scripting
 		public override object Create(ActorInitializer init) { return new ScriptTriggers(init.World, init.Self); }
 	}
 
-	public sealed class ScriptTriggers : INotifyIdle, INotifyDamage, INotifyKilled, INotifyProduction, INotifyOtherProduction,
+	public sealed class ScriptTriggers : INotifyIdle, INotifyDamage, INotifyKilled, INotifyProduction, INotifyBuildingPlaced, INotifyOtherProduction,
 		INotifyObjectivesUpdated, INotifyCapture, INotifyInfiltrated, INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyDiscovered, INotifyActorDisposing,
-		INotifyPassengerEntered, INotifyPassengerExited, INotifySold, INotifyWinStateChanged, INotifyTimeLimit
+		INotifyPassengerEntered, INotifyPassengerExited, INotifySold, INotifySupportPower, INotifyWinStateChanged, INotifyTimeLimit
 	{
 		readonly World world;
 		readonly Actor self;
@@ -47,7 +47,7 @@ namespace OpenRA.Mods.Common.Scripting
 		public event Action<Actor, Actor> OnProducedInternal = (a, b) => { };
 		public event Action<Actor, Actor> OnOtherProducedInternal = (a, b) => { };
 
-		readonly List<Triggerable>[] triggerables = Exts.MakeArray(Enum.GetValues(typeof(Trigger)).Length, _ => new List<Triggerable>());
+		readonly List<Triggerable>[] triggerables = Exts.MakeArray(Enum.GetValues<Trigger>().Length, _ => new List<Triggerable>());
 
 		readonly struct Triggerable : IDisposable
 		{
@@ -102,7 +102,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -123,7 +123,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -144,7 +144,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -168,7 +168,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -191,7 +191,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -211,7 +211,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -232,7 +232,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -253,7 +253,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -274,7 +274,29 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
+					return;
+				}
+			}
+		}
+
+		void INotifyBuildingPlaced.BuildingPlaced(Actor self, Actor building)
+		{
+			if (world.Disposing)
+				return;
+
+			// Run Lua callbacks
+			foreach (var f in Triggerables(Trigger.OnBuildingPlaced))
+			{
+				try
+				{
+					using (var a = self.Owner.ToLuaValue(f.Context))
+					using (var b = building.ToLuaValue(f.Context))
+						f.Function.Call(a, b).Dispose();
+				}
+				catch (Exception ex)
+				{
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -296,7 +318,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -319,7 +341,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -338,7 +360,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -361,7 +383,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -385,7 +407,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -408,7 +430,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -431,7 +453,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -446,7 +468,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -467,7 +489,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -488,7 +510,28 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
+					return;
+				}
+			}
+		}
+
+		void INotifySupportPower.Charged(Actor self) { }
+		void INotifySupportPower.Activated(Actor self, string orderName)
+		{
+			if (world.Disposing)
+				return;
+
+			foreach (var f in Triggerables(Trigger.OnSupportPowerActivated))
+			{
+				try
+				{
+					using (var name = orderName.ToLuaValue(f.Context))
+						f.Function.Call(f.Self, name).Dispose();
+				}
+				catch (Exception ex)
+				{
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -507,7 +550,7 @@ namespace OpenRA.Mods.Common.Scripting
 				}
 				catch (Exception ex)
 				{
-					f.Context.FatalError(ex.Message);
+					f.Context.FatalError(ex);
 					return;
 				}
 			}
@@ -526,7 +569,7 @@ namespace OpenRA.Mods.Common.Scripting
 
 		public void ClearAll()
 		{
-			foreach (Trigger t in Enum.GetValues(typeof(Trigger)))
+			foreach (var t in Enum.GetValues<Trigger>())
 				Clear(t);
 		}
 

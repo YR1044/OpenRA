@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,9 @@
  */
 #endregion
 
+using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Traits;
 
@@ -21,17 +23,17 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly string Prerequisite = null;
 
 		[Desc("Only grant this prerequisite when you have these prerequisites.")]
-		public readonly string[] RequiresPrerequisites = { };
+		public readonly ImmutableArray<string> RequiresPrerequisites = [];
 
 		[Desc("Only grant this prerequisite for certain factions.")]
-		public readonly HashSet<string> Factions = new HashSet<string>();
+		public readonly FrozenSet<string> Factions = [];
 
 		[Desc("Should it recheck everything when it is captured?")]
 		public readonly bool ResetOnOwnerChange = false;
 
 		IEnumerable<string> ITechTreePrerequisiteInfo.Prerequisites(ActorInfo info)
 		{
-			return new string[] { Prerequisite ?? info.Name };
+			return [Prerequisite ?? info.Name];
 		}
 
 		public override object Create(ActorInitializer init) { return new ProvidesPrerequisite(init, this); }
@@ -39,7 +41,7 @@ namespace OpenRA.Mods.Common.Traits
 
 	public class ProvidesPrerequisite : ConditionalTrait<ProvidesPrerequisiteInfo>, ITechTreePrerequisite, INotifyOwnerChanged, INotifyCreated
 	{
-		readonly string prerequisite;
+		readonly string[] prerequisites;
 
 		bool enabled;
 		TechTree techTree;
@@ -48,24 +50,15 @@ namespace OpenRA.Mods.Common.Traits
 		public ProvidesPrerequisite(ActorInitializer init, ProvidesPrerequisiteInfo info)
 			: base(info)
 		{
-			prerequisite = info.Prerequisite;
-
-			if (string.IsNullOrEmpty(prerequisite))
-				prerequisite = init.Self.Info.Name;
+			if (string.IsNullOrEmpty(info.Prerequisite))
+				prerequisites = [init.Self.Info.Name];
+			else
+				prerequisites = [info.Prerequisite];
 
 			faction = init.GetValue<FactionInit, string>(init.Self.Owner.Faction.InternalName);
 		}
 
-		public IEnumerable<string> ProvidesPrerequisites
-		{
-			get
-			{
-				if (!enabled)
-					yield break;
-
-				yield return prerequisite;
-			}
-		}
+		public IEnumerable<string> ProvidesPrerequisites => enabled ? prerequisites : Enumerable.Empty<string>();
 
 		protected override void Created(Actor self)
 		{
@@ -92,10 +85,10 @@ namespace OpenRA.Mods.Common.Traits
 			if (IsTraitDisabled)
 				return;
 
-			if (Info.Factions.Any())
+			if (Info.Factions.Count > 0)
 				enabled = Info.Factions.Contains(faction);
 
-			if (Info.RequiresPrerequisites.Any() && enabled)
+			if (Info.RequiresPrerequisites.Length > 0 && enabled)
 				enabled = techTree.HasPrerequisites(Info.RequiresPrerequisites);
 		}
 

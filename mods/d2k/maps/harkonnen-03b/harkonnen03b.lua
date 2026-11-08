@@ -1,5 +1,5 @@
 --[[
-   Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+   Copyright (c) The OpenRA Developers and Contributors
    This file is part of OpenRA, which is free software. It is made
    available to you under the terms of the GNU General Public License
    as published by the Free Software Foundation, either version 3 of
@@ -8,6 +8,7 @@
 ]]
 
 AtreidesBase = { ABarracks, AWindTrap1, AWindTrap2, AWindTrap3, ALightFactory, AOutpost, AConyard, ARefinery, ASilo1, ASilo2, ASilo3, ASilo4 }
+
 AtreidesBaseAreaTriggers =
 {
 	{ CPos.New(10, 53), CPos.New(11, 53), CPos.New(12, 53), CPos.New(13, 53), CPos.New(14, 53), CPos.New(15, 53), CPos.New(16, 53), CPos.New(17, 53), CPos.New(17, 52), CPos.New(17, 51), CPos.New(17, 50), CPos.New(17, 49), CPos.New(17, 48), CPos.New(17, 47), CPos.New(17, 46), CPos.New(17, 45), CPos.New(17, 44), CPos.New(17, 43), CPos.New(17, 42), CPos.New(17, 41), CPos.New(17, 40), CPos.New(17, 39), CPos.New(17, 38), CPos.New(2, 35), CPos.New(3, 35), CPos.New(4, 35), CPos.New(5, 35), CPos.New(6, 35), CPos.New(7, 35), CPos.New(8, 35), CPos.New(9, 35), CPos.New(10, 35), CPos.New(11, 35), CPos.New(12, 35) },
@@ -87,67 +88,76 @@ AtreidesHunterPaths =
 }
 
 AtreidesInitialPath = { AtreidesEntry2.Location, AtreidesRally2.Location }
+
 AtreidesInitialReinforcements = { "light_inf", "light_inf", "quad", "quad", "trike", "trike", "trooper", "trooper" }
 
 HarkonnenReinforcements = { "quad", "quad" }
+
 HarkonnenPath = { HarkonnenEntry.Location, HarkonnenRally.Location }
 
 HarkonnenBaseBuildings = { "barracks", "light_factory" }
+
 HarkonnenUpgrades = { "upgrade.barracks", "upgrade.light" }
 
 MessageCheck = function(index)
-	return #player.GetActorsByType(HarkonnenBaseBuildings[index]) > 0 and not player.HasPrerequisites({ HarkonnenUpgrades[index] })
+	return #Harkonnen.GetActorsByType(HarkonnenBaseBuildings[index]) > 0 and not Harkonnen.HasPrerequisites({ HarkonnenUpgrades[index] })
 end
 
 Tick = function()
-	if player.HasNoRequiredUnits() then
-		atreides.MarkCompletedObjective(KillHarkonnen)
+	if Harkonnen.HasNoRequiredUnits() then
+		Atreides.MarkCompletedObjective(KillHarkonnen)
 	end
 
-	if atreides.HasNoRequiredUnits() and not player.IsObjectiveCompleted(KillAtreides) then
-		Media.DisplayMessage("The Atreides have been annihilated!", "Mentat")
-		player.MarkCompletedObjective(KillAtreides)
+	if Atreides.HasNoRequiredUnits() and not Harkonnen.IsObjectiveCompleted(KillAtreides) then
+		Media.DisplayMessage(UserInterface.GetFluentMessage("atreides-annihilated"), Mentat)
+		Harkonnen.MarkCompletedObjective(KillAtreides)
 	end
 
-	if DateTime.GameTime % DateTime.Seconds(10) == 0 and LastHarvesterEaten[atreides] then
-		local units = atreides.GetActorsByType("harvester")
+	if DateTime.GameTime % DateTime.Seconds(10) == 0 and LastHarvesterEaten[Atreides] then
+		local units = Atreides.GetActorsByType("harvester")
 
 		if #units > 0 then
-			LastHarvesterEaten[atreides] = false
-			ProtectHarvester(units[1], atreides, AttackGroupSize[Difficulty])
+			LastHarvesterEaten[Atreides] = false
+			ProtectHarvester(units[1], Atreides, AttackGroupSize[Difficulty])
 		end
 	end
 
 	if DateTime.GameTime % DateTime.Seconds(32) == 0 and (MessageCheck(1) or MessageCheck(2)) then
-		Media.DisplayMessage("Upgrade barracks and light factory to produce more advanced units.", "Mentat")
+		Media.DisplayMessage(UserInterface.GetFluentMessage("upgrade-barracks-light-factory"), Mentat)
 	end
 end
 
 WorldLoaded = function()
-	atreides = Player.GetPlayer("Atreides")
-	player = Player.GetPlayer("Harkonnen")
+	Atreides = Player.GetPlayer("Atreides")
+	Harkonnen = Player.GetPlayer("Harkonnen")
 
-	InitObjectives(player)
-	KillHarkonnen = atreides.AddPrimaryObjective("Kill all Harkonnen units.")
-	KillAtreides = player.AddPrimaryObjective("Eliminate all Atreides units and reinforcements\nin the area.")
+	InitObjectives(Harkonnen)
+	KillHarkonnen = AddPrimaryObjective(Atreides, "")
+	KillAtreides = AddPrimaryObjective(Harkonnen, "eliminate-atreides-units-reinforcements")
 
 	Camera.Position = HConyard.CenterPosition
 
 	Trigger.OnAllKilled(AtreidesBase, function()
-		Utils.Do(atreides.GetGroundAttackers(), IdleHunt)
+		Utils.Do(Atreides.GetGroundAttackers(), IdleHunt)
 	end)
 
 	local path = function() return Utils.Random(AtreidesPaths) end
-	local waveCondition = function() return player.IsObjectiveCompleted(KillAtreides) end
-	SendCarryallReinforcements(atreides, 0, AtreidesAttackWaves[Difficulty], AtreidesAttackDelay[Difficulty], path, AtreidesReinforcements[Difficulty], waveCondition)
+	local waveCondition = function() return Harkonnen.IsObjectiveCompleted(KillAtreides) end
+	SendCarryallReinforcements(Atreides, 0, AtreidesAttackWaves[Difficulty], AtreidesAttackDelay[Difficulty], path, AtreidesReinforcements[Difficulty], waveCondition)
 	ActivateAI()
 
 	Trigger.AfterDelay(DateTime.Minutes(2) + DateTime.Seconds(30), function()
-		Reinforcements.ReinforceWithTransport(player, "carryall.reinforce", HarkonnenReinforcements, HarkonnenPath, { HarkonnenPath[1] })
+		Reinforcements.ReinforceWithTransport(Harkonnen, "carryall.reinforce", HarkonnenReinforcements, HarkonnenPath, { HarkonnenPath[1] })
 	end)
 
-	TriggerCarryallReinforcements(player, atreides, AtreidesBaseAreaTriggers[1], AtreidesHunters[1], AtreidesHunterPaths[1])
-	TriggerCarryallReinforcements(player, atreides, AtreidesBaseAreaTriggers[2], AtreidesHunters[2], AtreidesHunterPaths[2])
-	TriggerCarryallReinforcements(player, atreides, AtreidesBaseAreaTriggers[3], AtreidesHunters[3], AtreidesHunterPaths[3])
-	TriggerCarryallReinforcements(player, atreides, AtreidesBaseAreaTriggers[4], AtreidesHunters[4], AtreidesHunterPaths[4])
+	TriggerCarryallReinforcements(Harkonnen, Atreides, AtreidesBaseAreaTriggers[1], AtreidesHunters[1], AtreidesHunterPaths[1])
+	TriggerCarryallReinforcements(Harkonnen, Atreides, AtreidesBaseAreaTriggers[2], AtreidesHunters[2], AtreidesHunterPaths[2])
+	TriggerCarryallReinforcements(Harkonnen, Atreides, AtreidesBaseAreaTriggers[3], AtreidesHunters[3], AtreidesHunterPaths[3])
+	TriggerCarryallReinforcements(Harkonnen, Atreides, AtreidesBaseAreaTriggers[4], AtreidesHunters[4], AtreidesHunterPaths[4])
+
+	Trigger.OnRemovedFromWorld(CrateScript, function()
+		VisionPoint.GrantCondition("activate", 150)
+		Media.PlaySound("MULTI1.WAV")
+		Camera.Position = VisionPoint.CenterPosition
+	end)
 end

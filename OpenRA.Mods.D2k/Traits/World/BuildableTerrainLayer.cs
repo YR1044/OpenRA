@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,15 +9,19 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
+using OpenRA.Mods.D2k.Traits.Buildings;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.D2k.Traits
 {
-	[Desc("Attach this to the world actor. Required for LaysTerrain to work.")]
+	[Desc("Attach this to the world actor. Required for `" + nameof(D2kBuilding) + "` to work.")]
 	[TraitLocation(SystemActors.World)]
 	public class BuildableTerrainLayerInfo : TraitInfo, Requires<ITiledTerrainRendererInfo>
 	{
@@ -30,13 +34,14 @@ namespace OpenRA.Mods.D2k.Traits
 		public override object Create(ActorInitializer init) { return new BuildableTerrainLayer(init.Self, this); }
 	}
 
-	public class BuildableTerrainLayer : IRenderOverlay, IWorldLoaded, ITickRender, INotifyActorDisposing
+	public class BuildableTerrainLayer : IRenderOverlay, IWorldLoaded, ITickRender, IRadarTerrainLayer, INotifyActorDisposing
 	{
 		readonly BuildableTerrainLayerInfo info;
-		readonly Dictionary<CPos, TerrainTile?> dirty = new Dictionary<CPos, TerrainTile?>();
+		readonly Dictionary<CPos, TerrainTile?> dirty = [];
 		readonly ITiledTerrainRenderer terrainRenderer;
 		readonly World world;
 		readonly CellLayer<int> strength;
+		readonly CellLayer<(Color, Color)> radarColor;
 
 		TerrainSpriteLayer render;
 		PaletteReference paletteReference;
@@ -47,12 +52,13 @@ namespace OpenRA.Mods.D2k.Traits
 			this.info = info;
 			world = self.World;
 			strength = new CellLayer<int>(world.Map);
+			radarColor = new CellLayer<(Color, Color)>(world.Map);
 			terrainRenderer = self.Trait<ITiledTerrainRenderer>();
 		}
 
 		void IWorldLoaded.WorldLoaded(World w, WorldRenderer wr)
 		{
-			render = new TerrainSpriteLayer(w, wr, terrainRenderer.MissingTile, BlendMode.Alpha, wr.World.Type != WorldType.Editor);
+			render = new TerrainSpriteLayer(w, wr, terrainRenderer.MissingTile, BlendMode.Alpha, true);
 			paletteReference = wr.Palette(info.Palette);
 		}
 
@@ -61,8 +67,11 @@ namespace OpenRA.Mods.D2k.Traits
 			if (!strength.Contains(cell))
 				return;
 
-			world.Map.CustomTerrain[cell] = world.Map.Rules.TerrainInfo.GetTerrainIndex(tile);
-			strength[cell] = info.MaxStrength;
+			var uv = cell.ToMPos(world.Map);
+			var tileInfo = world.Map.Rules.TerrainInfo.GetTerrainInfo(tile);
+			world.Map.CustomTerrain[uv] = tileInfo.TerrainType;
+			strength[uv] = info.MaxStrength;
+			radarColor[uv] = (tileInfo.GetColor(world.LocalRandom), tileInfo.GetColor(world.LocalRandom));
 			dirty[cell] = tile;
 		}
 
@@ -75,7 +84,7 @@ namespace OpenRA.Mods.D2k.Traits
 			if (world.ActorMap.GetActorsAt(cell).Any(a => a.TraitOrDefault<Building>() != null))
 				return;
 
-			strength[cell] = strength[cell] - damage;
+			strength[cell] -= damage;
 			if (strength[cell] < 1)
 				RemoveTile(cell);
 		}
@@ -85,8 +94,10 @@ namespace OpenRA.Mods.D2k.Traits
 			if (!strength.Contains(cell))
 				return;
 
-			world.Map.CustomTerrain[cell] = byte.MaxValue;
+			var uv = cell.ToMPos(world.Map);
+			world.Map.CustomTerrain[uv] = byte.MaxValue;
 			strength[cell] = 0;
+			radarColor[uv] = (Color.Transparent, Color.Transparent);
 			dirty[cell] = null;
 		}
 
@@ -102,7 +113,7 @@ namespace OpenRA.Mods.D2k.Traits
 					{
 						// Terrain tiles define their origin at the topleft
 						var s = terrainRenderer.TileSprite(tile.Value);
-						var ss = new Sprite(s.Sheet, s.Bounds, s.ZRamp, float2.Zero, s.Channel, s.BlendMode);
+						var ss = new Sprite(s.Sheet, s.Bounds, s.ZRamp, Vector3.Zero, s.Channel, s.BlendMode);
 						render.Update(kv.Key, ss, paletteReference);
 					}
 					else
@@ -119,6 +130,18 @@ namespace OpenRA.Mods.D2k.Traits
 		void IRenderOverlay.Render(WorldRenderer wr)
 		{
 			render.Draw(wr.Viewport);
+		}
+
+		event Action<CPos> IRadarTerrainLayer.CellEntryChanged
+		{
+			add => radarColor.CellEntryChanged += value;
+			remove => radarColor.CellEntryChanged -= value;
+		}
+
+		bool IRadarTerrainLayer.TryGetTerrainColorPair(MPos uv, out (Color Left, Color Right) value)
+		{
+			value = radarColor[uv];
+			return strength[uv] > 0;
 		}
 
 		void INotifyActorDisposing.Disposing(Actor self)

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 using OpenRA.Traits;
@@ -25,36 +26,32 @@ namespace OpenRA.Mods.Common.Graphics
 		static readonly Color DarkEmptyColor = Color.FromArgb(160, 15, 15, 15);
 		static readonly Color DarkenColor = Color.FromArgb(24, 0, 0, 0);
 		static readonly Color LightenColor = Color.FromArgb(24, 255, 255, 255);
-
-		readonly WPos pos;
 		readonly Actor actor;
-		readonly bool displayHealth;
-		readonly bool displayExtra;
 		readonly Polygon bounds;
 
 		public IsometricSelectionBarsAnnotationRenderable(Actor actor, Polygon bounds, bool displayHealth, bool displayExtra)
 			: this(actor.CenterPosition, actor, bounds)
 		{
-			this.displayHealth = displayHealth;
-			this.displayExtra = displayExtra;
+			DisplayHealth = displayHealth;
+			DisplayExtra = displayExtra;
 		}
 
 		public IsometricSelectionBarsAnnotationRenderable(WPos pos, Actor actor, Polygon bounds)
 		{
-			this.pos = pos;
+			Pos = pos;
 			this.actor = actor;
 			this.bounds = bounds;
 		}
 
-		public WPos Pos => pos;
-		public bool DisplayHealth => displayHealth;
-		public bool DisplayExtra => displayExtra;
+		public WPos Pos { get; }
+		public bool DisplayHealth { get; }
+		public bool DisplayExtra { get; }
 
 		public int ZOffset => 0;
 		public bool IsDecoration => true;
 
 		public IRenderable WithZOffset(int newOffset) { return this; }
-		public IRenderable OffsetBy(in WVec vec) { return new IsometricSelectionBarsAnnotationRenderable(pos + vec, actor, bounds); }
+		public IRenderable OffsetBy(in WVec vec) { return new IsometricSelectionBarsAnnotationRenderable(Pos + vec, actor, bounds); }
 		public IRenderable AsDecoration() { return this; }
 
 		void DrawExtraBars(WorldRenderer wr)
@@ -71,24 +68,24 @@ namespace OpenRA.Mods.Common.Graphics
 		void DrawBar(WorldRenderer wr, float value, Color barColor, int barNum, float? secondValue = null, Color? secondColor = null)
 		{
 			var darkColor = Color.FromArgb(barColor.A, barColor.R / 2, barColor.G / 2, barColor.B / 2);
-			var barAspect = new float2(1f, 0.5f);
-			var stepAspect = new float2(1f, -0.5f);
+			var barAspect = new Vector3(1f, 0.5f, 0f);
+			var stepAspect = new Vector3(1f, -0.5f, 0f);
 
-			var offset = barNum * BarStride * barAspect - new float2(0, BarHeight + 1);
-			var start = wr.Viewport.WorldToViewPx(bounds.Vertices[1]).ToFloat2() + offset;
-			var end = wr.Viewport.WorldToViewPx(bounds.Vertices[0]).ToFloat2() + offset;
+			var offset = barNum * BarStride * barAspect - new Vector3(0, BarHeight + 1, 0);
+			var start = wr.Viewport.WorldToViewPx(bounds.Vertices[1]).ToVector3() + offset;
+			var end = wr.Viewport.WorldToViewPx(bounds.Vertices[0]).ToVector3() + offset;
 
 			// HACK: Work around rounding errors that may cause a few-px offset in the end relative to the start
 			// Force the bar to take a 45 degree angle
-			end = new float2(end.X, start.Y - (end.X - start.X) / 2);
+			end = new Vector3(end.X, start.Y - (end.X - start.X) / 2, 0);
 
 			// Round the cut point to the nearest pixel to avoid potential off-by-one pixel offsets distorting the bar
-			var cutX = (int)(float2.Lerp(start.X, end.X, value) + 0.5f);
-			var cut = new float2(cutX, start.Y - (cutX - start.X) / 2);
+			var cutX = (int)(OpenRA.Graphics.Util.Lerp(start.X, end.X, value) + 0.5f);
+			var cut = new Vector3(cutX, start.Y - (cutX - start.X) / 2, 0);
 
 			var cr = Game.Renderer.RgbaColorRenderer;
 			var da = BarWidth * barAspect;
-			var db = new int2(0, BarHeight);
+			var db = new Vector3(0, BarHeight, 0);
 			var dc = da + db;
 
 			// Filled bar
@@ -109,8 +106,8 @@ namespace OpenRA.Mods.Common.Graphics
 			// Second bar (e.g. applied damage)
 			if (secondValue.HasValue && secondColor.HasValue)
 			{
-				var secondCutX = (int)(float2.Lerp(start.X, end.X, secondValue.Value) + 0.5f);
-				var secondCut = new float2(secondCutX, start.Y - (secondCutX - start.X) / 2);
+				var secondCutX = (int)(OpenRA.Graphics.Util.Lerp(start.X, end.X, secondValue.Value) + 0.5f);
+				var secondCut = new Vector3(secondCutX, start.Y - (secondCutX - start.X) / 2, 0);
 				var darkSecond = Color.FromArgb(secondColor.Value.A, secondColor.Value.R / 2, secondColor.Value.G / 2, secondColor.Value.B / 2);
 
 				cr.FillRect(cut + da, cut + dc, secondCut + dc, secondCut + da, darkSecond);
@@ -128,11 +125,8 @@ namespace OpenRA.Mods.Common.Graphics
 			}
 		}
 
-		Color GetHealthColor(IHealth health)
+		static Color GetHealthColor(IHealth health)
 		{
-			if (Game.Settings.Game.UsePlayerStanceColors)
-				return actor.Owner.PlayerRelationshipColor(actor);
-
 			return health.DamageState == DamageState.Critical ? Color.Red :
 				health.DamageState == DamageState.Heavy ? Color.Yellow : Color.LimeGreen;
 		}
@@ -151,7 +145,7 @@ namespace OpenRA.Mods.Common.Graphics
 					return;
 
 				var displayValue = health.DisplayHP != health.HP ? (float?)health.DisplayHP / health.MaxHP : null;
-				DrawBar(wr, (float)health.HP / health.MaxHP, GetHealthColor(health), 0,  displayValue, Color.OrangeRed);
+				DrawBar(wr, (float)health.HP / health.MaxHP, GetHealthColor(health), 0, displayValue, Color.OrangeRed);
 			}
 
 			if (DisplayExtra)

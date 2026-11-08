@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -84,7 +84,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			// Close the multiplayer browser
 			Ui.CloseWindow();
 
-			Action onLobbyExit = () =>
+			void OnLobbyExit()
 			{
 				// Open a fresh copy of the multiplayer browser
 				Ui.OpenWindow("MULTIPLAYER_PANEL", new WidgetArgs
@@ -97,12 +97,12 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				Game.Disconnect();
 
 				DiscordService.UpdateStatus(DiscordState.InMenu);
-			};
+			}
 
 			Game.OpenWindow("SERVER_LOBBY", new WidgetArgs
 			{
 				{ "onStart", onStart },
-				{ "onExit", onLobbyExit },
+				{ "onExit", OnLobbyExit },
 				{ "skirmishMode", false }
 			});
 		}
@@ -112,8 +112,9 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			if (server == null || !server.IsJoinable)
 				return;
 
-			var host = server.Address.Split(':')[0];
-			var port = Exts.ParseIntegerInvariant(server.Address.Split(':')[1]);
+			var parts = server.Address.Split(':');
+			var host = parts[0];
+			var port = Exts.ParseInt32Invariant(parts[1]);
 
 			ConnectionLogic.Connect(new ConnectionTarget(host, port), "", OpenLobby, DoNothing);
 		}

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,20 +11,17 @@
 
 using System.Collections.Generic;
 using System.Linq;
-using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 {
 	abstract class AirStateBase : StateBase
 	{
-		static readonly BitSet<TargetableType> AirTargetTypes = new BitSet<TargetableType>("Air");
-
 		protected const int MissileUnitMultiplier = 3;
 
-		protected static int CountAntiAirUnits(IEnumerable<Actor> units)
+		protected static int CountAntiAirUnits(Squad owner, IReadOnlyCollection<Actor> units)
 		{
-			if (!units.Any())
+			if (units.Count == 0)
 				return 0;
 
 			var missileUnitsCount = 0;
@@ -40,7 +37,7 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 
 					foreach (var a in ab.Armaments)
 					{
-						if (a.Weapon.IsValidTarget(AirTargetTypes))
+						if (a.Weapon.IsValidTarget(owner.SquadManager.Info.AircraftTargetType))
 						{
 							missileUnitsCount++;
 							break;
@@ -50,39 +47,6 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 			}
 
 			return missileUnitsCount;
-		}
-
-		protected static Actor FindDefenselessTarget(Squad owner)
-		{
-			Actor target = null;
-			FindSafePlace(owner, out target, true);
-			return target;
-		}
-
-		protected static CPos? FindSafePlace(Squad owner, out Actor detectedEnemyTarget, bool needTarget)
-		{
-			var map = owner.World.Map;
-			var dangerRadius = owner.SquadManager.Info.DangerScanRadius;
-			detectedEnemyTarget = null;
-
-			var columnCount = (map.MapSize.X + dangerRadius - 1) / dangerRadius;
-			var rowCount = (map.MapSize.Y + dangerRadius - 1) / dangerRadius;
-
-			var checkIndices = Exts.MakeArray(columnCount * rowCount, i => i).Shuffle(owner.World.LocalRandom);
-			foreach (var i in checkIndices)
-			{
-				var pos = new MPos((i % columnCount) * dangerRadius + dangerRadius / 2, (i / columnCount) * dangerRadius + dangerRadius / 2).ToCPos(map);
-
-				if (NearToPosSafely(owner, map.CenterOfCell(pos), out detectedEnemyTarget))
-				{
-					if (needTarget && detectedEnemyTarget == null)
-						continue;
-
-					return pos;
-				}
-			}
-
-			return null;
 		}
 
 		protected static bool NearToPosSafely(Squad owner, WPos loc)
@@ -97,10 +61,10 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 			var unitsAroundPos = owner.World.FindActorsInCircle(loc, WDist.FromCells(dangerRadius))
 				.Where(owner.SquadManager.IsPreferredEnemyUnit).ToList();
 
-			if (!unitsAroundPos.Any())
+			if (unitsAroundPos.Count == 0)
 				return true;
 
-			if (CountAntiAirUnits(unitsAroundPos) * MissileUnitMultiplier < owner.Units.Count)
+			if (CountAntiAirUnits(owner, unitsAroundPos) * MissileUnitMultiplier < owner.Units.Count)
 			{
 				detectedEnemyTarget = unitsAroundPos.Random(owner.Random);
 				return true;
@@ -112,13 +76,65 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 		// Checks the number of anti air enemies around units
 		protected virtual bool ShouldFlee(Squad owner)
 		{
-			return ShouldFlee(owner, enemies => CountAntiAirUnits(enemies) * MissileUnitMultiplier > owner.Units.Count);
+			return ShouldFlee(owner, enemies => CountAntiAirUnits(owner, enemies) * MissileUnitMultiplier > owner.Units.Count);
 		}
 	}
 
-	class AirIdleState : AirStateBase, IState
+	sealed class AirIdleState : AirStateBase, IState
 	{
-		public void Activate(Squad owner) { }
+		const int MaxCheckTimesPerTick = 2;
+		Map map;
+		int dangerRadius;
+		int columnCount;
+		int rowCount;
+
+		int[] airStrikeCheckIndices = null;
+		int checkedIndex = 0;
+
+		public void Activate(Squad owner)
+		{
+			map = owner.World.Map;
+			dangerRadius = owner.SquadManager.Info.DangerScanRadius;
+			var dangerIndiceSideLength = dangerRadius * 141 / 100; // ¡Ö DangerScanRadius * sqrt(2)
+
+			columnCount = (map.Bounds.Width + dangerIndiceSideLength - 1) / dangerIndiceSideLength;
+			rowCount = (map.Bounds.Height + dangerIndiceSideLength - 1) / dangerIndiceSideLength;
+			var xoffset = map.Bounds.X;
+			var yoffset = map.Bounds.Y;
+
+			airStrikeCheckIndices ??= Exts.MakeArray(columnCount * rowCount, i => i).Shuffle(owner.World.LocalRandom).ToArray();
+		}
+
+		Actor FindDefenselessTarget(Squad owner)
+		{
+			var position = owner.CenterPosition();
+
+			for (var checktime = 0; checktime <= MaxCheckTimesPerTick; checkedIndex++, checktime++)
+			{
+				if (checkedIndex >= airStrikeCheckIndices.Length)
+					checkedIndex = 0;
+
+				var pos = new MPos(airStrikeCheckIndices[checkedIndex] % columnCount * dangerRadius + dangerRadius / 2,
+					airStrikeCheckIndices[checkedIndex] / columnCount * dangerRadius + dangerRadius / 2).ToCPos(map);
+
+				var wpos = map.CenterOfCell(pos);
+
+				if (CountAntiAirUnits(owner, owner.World.FindActorsOnLine(position, wpos, WDist.FromCells(dangerRadius)).ToList()) * MissileUnitMultiplier
+					< owner.Units.Count)
+					continue;
+
+				if (NearToPosSafely(owner, wpos, out var detectedEnemyTarget))
+				{
+					if (detectedEnemyTarget == null)
+						continue;
+
+					checkedIndex = owner.World.LocalRandom.Next(airStrikeCheckIndices.Length);
+					return detectedEnemyTarget;
+				}
+			}
+
+			return null;
+		}
 
 		public void Tick(Squad owner)
 		{
@@ -127,7 +143,7 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 
 			if (ShouldFlee(owner))
 			{
-				owner.FuzzyStateMachine.ChangeState(owner, new AirFleeState(), true);
+				owner.FuzzyStateMachine.ChangeState(owner, new AirFleeState());
 				return;
 			}
 
@@ -135,14 +151,14 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 			if (e == null)
 				return;
 
-			owner.TargetActor = e;
-			owner.FuzzyStateMachine.ChangeState(owner, new AirAttackState(), true);
+			owner.SetActorToTarget((e, WVec.Zero));
+			owner.FuzzyStateMachine.ChangeState(owner, new AirAttackState());
 		}
 
 		public void Deactivate(Squad owner) { }
 	}
 
-	class AirAttackState : AirStateBase, IState
+	sealed class AirAttackState : AirStateBase, IState
 	{
 		public void Activate(Squad owner) { }
 
@@ -151,52 +167,45 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 			if (!owner.IsValid)
 				return;
 
-			if (!owner.IsTargetValid)
+			var leader = owner.CenterUnit();
+			if (!owner.IsTargetValid(leader))
 			{
-				var a = owner.Units.Random(owner.Random);
-				var closestEnemy = owner.SquadManager.FindClosestEnemy(a.CenterPosition);
-				if (closestEnemy != null)
-					owner.TargetActor = closestEnemy;
-				else
+				var closestEnemy = owner.SquadManager.FindClosestEnemy(leader);
+				owner.SetActorToTarget(closestEnemy);
+				if (closestEnemy.Actor == null)
 				{
-					owner.FuzzyStateMachine.ChangeState(owner, new AirFleeState(), true);
+					owner.FuzzyStateMachine.ChangeState(owner, new AirFleeState());
 					return;
 				}
 			}
 
-			if (!NearToPosSafely(owner, owner.TargetActor.CenterPosition))
+			if (!NearToPosSafely(owner, owner.Units.ClosestToIgnoringPath(owner.TargetActor).CenterPosition))
 			{
-				owner.FuzzyStateMachine.ChangeState(owner, new AirFleeState(), true);
+				owner.FuzzyStateMachine.ChangeState(owner, new AirFleeState());
 				return;
 			}
 
 			foreach (var a in owner.Units)
 			{
-				if (BusyAttack(a))
+				if (BusyAttack(a) || IsRearming(a))
 					continue;
 
 				var ammoPools = a.TraitsImplementing<AmmoPool>().ToArray();
-				if (!ReloadsAutomatically(ammoPools, a.TraitOrDefault<Rearmable>()))
+				if (!ReloadsAutomatically(ammoPools, a.TraitOrDefault<Rearmable>()) && !HasAmmo(ammoPools))
 				{
-					if (IsRearming(a))
-						continue;
-
-					if (!HasAmmo(ammoPools))
-					{
-						owner.Bot.QueueOrder(new Order("ReturnToBase", a, false));
-						continue;
-					}
+					owner.Bot.QueueOrder(new Order("ReturnToBase", a, false));
+					continue;
 				}
 
 				if (CanAttackTarget(a, owner.TargetActor))
-					owner.Bot.QueueOrder(new Order("Attack", a, Target.FromActor(owner.TargetActor), false));
+					owner.Bot.QueueOrder(new Order("Attack", a, owner.Target, false));
 			}
 		}
 
 		public void Deactivate(Squad owner) { }
 	}
 
-	class AirFleeState : AirStateBase, IState
+	sealed class AirFleeState : AirStateBase, IState
 	{
 		public void Activate(Squad owner) { }
 
@@ -208,11 +217,12 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 			foreach (var a in owner.Units)
 			{
 				var ammoPools = a.TraitsImplementing<AmmoPool>().ToArray();
+
+				if (IsRearming(a))
+					continue;
+
 				if (!ReloadsAutomatically(ammoPools, a.TraitOrDefault<Rearmable>()) && !FullAmmo(ammoPools))
 				{
-					if (IsRearming(a))
-						continue;
-
 					owner.Bot.QueueOrder(new Order("ReturnToBase", a, false));
 					continue;
 				}
@@ -220,7 +230,7 @@ namespace OpenRA.Mods.Common.Traits.BotModules.Squads
 				owner.Bot.QueueOrder(new Order("Move", a, Target.FromCell(owner.World, RandomBuildingLocation(owner)), false));
 			}
 
-			owner.FuzzyStateMachine.ChangeState(owner, new AirIdleState(), true);
+			owner.FuzzyStateMachine.ChangeState(owner, new AirIdleState());
 		}
 
 		public void Deactivate(Squad owner) { }

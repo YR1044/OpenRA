@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,44 +18,76 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[TraitLocation(SystemActors.World)]
+	[IncludeStaticFluentReferences(typeof(CustomTerrainDebugOverlay))]
 	[Desc("Displays custom terrain types.")]
-	class CustomTerrainDebugOverlayInfo : TraitInfo
+	sealed class CustomTerrainDebugOverlayInfo : TraitInfo
 	{
 		public readonly string Font = "TinyBold";
 
-		public override object Create(ActorInitializer init) { return new CustomTerrainDebugOverlay(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new CustomTerrainDebugOverlay(this); }
 	}
 
-	class CustomTerrainDebugOverlay : IWorldLoaded, IChatCommand, IRenderAnnotations
+	sealed class CustomTerrainDebugOverlay : IWorldLoaded, IChatCommand, IRenderAnnotations
 	{
-		const string CommandName = "custom-terrain";
-		const string CommandDesc = "toggles the custom terrain debug overlay.";
+		public const string CommandName = "custom-terrain";
+		public const string OrderName = "DevCustomTerrain";
+
+		[FluentReference]
+		const string CheatsDisabled = "notification-cheats-disabled";
+
+		[FluentReference]
+		const string CommandDescription = "description-custom-terrain-debug-overlay";
+
+		[FluentReference("cheat", "player")]
+		const string CheatEnabled = "notification-cheat-enabled";
+
+		[FluentReference("cheat", "player")]
+		const string CheatDisabled = "notification-cheat-disabled";
 
 		public bool Enabled;
 
 		readonly SpriteFont font;
 
-		public CustomTerrainDebugOverlay(Actor self, CustomTerrainDebugOverlayInfo info)
+		DeveloperMode devMode;
+		World world;
+
+		public CustomTerrainDebugOverlay(CustomTerrainDebugOverlayInfo info)
 		{
 			font = Game.Renderer.Fonts[info.Font];
 		}
 
 		void IWorldLoaded.WorldLoaded(World w, WorldRenderer wr)
 		{
+			world = w;
 			var console = w.WorldActor.TraitOrDefault<ChatCommands>();
 			var help = w.WorldActor.TraitOrDefault<HelpCommand>();
+			devMode = world.LocalPlayer?.PlayerActor.Trait<DeveloperMode>();
 
-			if (console == null || help == null)
+			if (console == null || help == null || devMode == null)
 				return;
 
 			console.RegisterCommand(CommandName, this);
-			help.RegisterHelp(CommandName, CommandDesc);
+			help.RegisterHelp(CommandName, CommandDescription);
 		}
 
-		void IChatCommand.InvokeCommand(string name, string arg)
+		public void InvokeCommand(string name, string arg)
 		{
-			if (name == CommandName)
-				Enabled ^= true;
+			if (name != CommandName)
+				return;
+
+			if (devMode == null || !devMode.Enabled)
+			{
+				TextNotificationsManager.Debug(FluentProvider.GetMessage(CheatsDisabled));
+				return;
+			}
+
+			Enabled ^= true;
+
+			var notification = Enabled ? CheatEnabled : CheatDisabled;
+			var playerName = world.LocalPlayer != null ? world.LocalPlayer.ResolvedPlayerName : "";
+			TextNotificationsManager.Debug(FluentProvider.GetMessage(notification,
+				"cheat", OrderName,
+				"player", playerName));
 		}
 
 		IEnumerable<IRenderable> IRenderAnnotations.RenderAnnotations(Actor self, WorldRenderer wr)

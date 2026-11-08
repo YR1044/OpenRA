@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,20 +10,35 @@
 #endregion
 
 using System;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
 {
+	public class EWMA
+	{
+		readonly float animRate;
+		float? value;
+
+		public EWMA(float animRate) { this.animRate = animRate; }
+
+		public float Update(float newValue)
+		{
+			value = OpenRA.Graphics.Util.Lerp(value ?? newValue, newValue, animRate);
+			return value.Value;
+		}
+	}
+
 	public enum ResourceBarOrientation { Vertical, Horizontal }
 	public class ResourceBarWidget : Widget
 	{
 		public readonly string TooltipTemplate;
 		public readonly string TooltipContainer;
-		Lazy<TooltipContainerWidget> tooltipContainer;
+		readonly Lazy<TooltipContainerWidget> tooltipContainer;
 
-		public string TooltipFormat = "";
+		public CachedTransform<(float, float), string> TooltipTextCached;
 		public ResourceBarOrientation Orientation = ResourceBarOrientation.Vertical;
 		public string IndicatorCollection = "sidebar-bits";
 		public string IndicatorImage = "indicator";
@@ -31,8 +46,8 @@ namespace OpenRA.Mods.Common.Widgets
 		public Func<float> GetProvided = () => 0;
 		public Func<float> GetUsed = () => 0;
 		public Func<Color> GetBarColor = () => Color.White;
-		EWMA providedLerp = new EWMA(0.3f);
-		EWMA usedLerp = new EWMA(0.3f);
+		readonly EWMA providedLerp = new(0.3f);
+		readonly EWMA usedLerp = new(0.3f);
 		readonly World world;
 		Sprite indicator;
 
@@ -56,7 +71,7 @@ namespace OpenRA.Mods.Common.Widgets
 			if (TooltipContainer == null)
 				return;
 
-			Func<string> getText = () => TooltipFormat.F(GetUsed(), GetProvided());
+			Func<string> getText = () => TooltipTextCached.Update((GetUsed(), GetProvided()));
 			tooltipContainer.Value.SetTooltip(TooltipTemplate, new WidgetArgs() { { "getText", getText }, { "world", world } });
 		}
 
@@ -84,23 +99,23 @@ namespace OpenRA.Mods.Common.Widgets
 			var color = GetBarColor();
 			if (Orientation == ResourceBarOrientation.Vertical)
 			{
-				var tl = new float2(b.X, (int)float2.Lerp(b.Bottom, b.Top, providedFrac));
-				var br = tl + new float2(b.Width, (int)(providedFrac * b.Height));
+				var tl = new Vector3(b.X, (int)OpenRA.Graphics.Util.Lerp(b.Bottom, b.Top, providedFrac), 0);
+				var br = tl + new Vector3(b.Width, (int)(providedFrac * b.Height), 0);
 				Game.Renderer.RgbaColorRenderer.FillRect(tl, br, color);
 
 				var x = (b.Left + b.Right - indicator.Size.X) / 2;
-				var y = float2.Lerp(b.Bottom, b.Top, usedFrac) - indicator.Size.Y / 2;
-				WidgetUtils.DrawSprite(indicator, new float2(x, y));
+				var y = (int)OpenRA.Graphics.Util.Lerp(b.Bottom, b.Top, usedFrac) - indicator.Size.Y / 2;
+				WidgetUtils.DrawSprite(indicator, new Vector2(x, y));
 			}
 			else
 			{
-				var tl = new float2(b.X, b.Y);
-				var br = tl + new float2((int)(providedFrac * b.Width), b.Height);
+				var tl = new Vector3(b.X, b.Y, 0);
+				var br = tl + new Vector3((int)(providedFrac * b.Width), b.Height, 0);
 				Game.Renderer.RgbaColorRenderer.FillRect(tl, br, color);
 
-				var x = float2.Lerp(b.Left, b.Right, usedFrac) - indicator.Size.X / 2;
+				var x = (int)OpenRA.Graphics.Util.Lerp(b.Left, b.Right, usedFrac) - indicator.Size.X / 2;
 				var y = (b.Bottom + b.Top - indicator.Size.Y) / 2;
-				WidgetUtils.DrawSprite(indicator, new float2(x, y));
+				WidgetUtils.DrawSprite(indicator, new Vector2(x, y));
 			}
 		}
 	}

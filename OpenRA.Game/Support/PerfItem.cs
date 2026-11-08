@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,10 +18,12 @@ namespace OpenRA.Support
 	{
 		public readonly Color C;
 		public readonly string Name;
-		double[] samples = new double[100];
+		readonly double[] samples = new double[100];
 		public double Val = 0.0;
 		int head = 1, tail = 0;
 		public bool HasNormalTick = true;
+		public double ActiveGameTotal { get; private set; } = 0.0;
+		public int ActiveGameTotalSamples { get; private set; } = 0;
 
 		public PerfItem(string name, Color c)
 		{
@@ -29,9 +31,15 @@ namespace OpenRA.Support
 			C = c;
 		}
 
-		public void Tick()
+		public void Tick(bool gameIsActive = true)
 		{
 			samples[head++] = Val;
+			if (gameIsActive)
+			{
+				ActiveGameTotal += Val;
+				ActiveGameTotalSamples++;
+			}
+
 			if (head == samples.Length) head = 0;
 			if (head == tail && ++tail == samples.Length) tail = 0;
 			Val = 0.0;
@@ -63,6 +71,11 @@ namespace OpenRA.Support
 			return i == 0 ? sum : sum / i;
 		}
 
+		public double ActiveGameTotalAverage()
+		{
+			return ActiveGameTotal / ActiveGameTotalSamples;
+		}
+
 		public double LastValue
 		{
 			get
@@ -71,6 +84,15 @@ namespace OpenRA.Support
 				if (--n < 0) n = samples.Length - 1;
 				return samples[n];
 			}
+		}
+
+		public void ResetSamples()
+		{
+			head = 1;
+			tail = 0;
+			Val = 0.0;
+			ActiveGameTotal = 0.0;
+			ActiveGameTotalSamples = 0;
 		}
 	}
 }

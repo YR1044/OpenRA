@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,60 +10,46 @@
 #endregion
 
 using OpenRA.Mods.Common.Orders;
+using OpenRA.Orders;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
-	public class SellOrderButtonLogic : ChromeLogic
+	public abstract class ChromeOrderButtonLogic<T> : ChromeLogic where T : IOrderGenerator
 	{
-		[ObjectCreator.UseCtor]
-		public SellOrderButtonLogic(Widget widget, World world)
+		protected ChromeOrderButtonLogic(Widget w, World world, string icon)
 		{
-			if (widget is ButtonWidget sell)
-				OrderButtonsChromeUtils.BindOrderButton<SellOrderGenerator>(world, sell, "sell");
-		}
-	}
+			if (w is not ButtonWidget widget)
+				return;
 
-	public class RepairOrderButtonLogic : ChromeLogic
-	{
-		[ObjectCreator.UseCtor]
-		public RepairOrderButtonLogic(Widget widget, World world)
-		{
-			if (widget is ButtonWidget repair)
-				OrderButtonsChromeUtils.BindOrderButton<RepairOrderGenerator>(world, repair, "repair");
-		}
-	}
+			widget.OnClick = () =>
+			{
+				if (world.OrderGenerator is T)
+					world.CancelInputMode();
+				else
+					world.OrderGenerator = (IOrderGenerator)typeof(T).GetConstructor([typeof(World)])?.Invoke([world]);
+			};
 
-	public class PowerdownOrderButtonLogic : ChromeLogic
-	{
-		[ObjectCreator.UseCtor]
-		public PowerdownOrderButtonLogic(Widget widget, World world)
-		{
-			if (widget is ButtonWidget power)
-				OrderButtonsChromeUtils.BindOrderButton<PowerDownOrderGenerator>(world, power, "power");
-		}
-	}
+			widget.IsHighlighted = () => world.OrderGenerator is T;
 
-	public class BeaconOrderButtonLogic : ChromeLogic
-	{
-		[ObjectCreator.UseCtor]
-		public BeaconOrderButtonLogic(Widget widget, World world)
-		{
-			if (widget is ButtonWidget beacon)
-				OrderButtonsChromeUtils.BindOrderButton<BeaconOrderGenerator>(world, beacon, "beacon");
-		}
-	}
-
-	public class OrderButtonsChromeUtils
-	{
-		public static void BindOrderButton<T>(World world, ButtonWidget w, string icon)
-			where T : IOrderGenerator, new()
-		{
-			w.OnClick = () => world.ToggleInputMode<T>();
-			w.IsHighlighted = () => world.OrderGenerator is T;
-
-			w.Get<ImageWidget>("ICON").GetImageName =
+			widget.Get<ImageWidget>("ICON").GetImageName =
 				() => world.OrderGenerator is T ? icon + "-active" : icon;
 		}
 	}
+
+	[method: ObjectCreator.UseCtor]
+	public class SellOrderButtonLogic(Widget widget, World world)
+		: ChromeOrderButtonLogic<SellOrderGenerator>(widget, world, "sell");
+
+	[method: ObjectCreator.UseCtor]
+	public class RepairOrderButtonLogic(Widget widget, World world)
+		: ChromeOrderButtonLogic<RepairOrderGenerator>(widget, world, "repair");
+
+	[method: ObjectCreator.UseCtor]
+	public class PowerdownOrderButtonLogic(Widget widget, World world)
+		: ChromeOrderButtonLogic<PowerDownOrderGenerator>(widget, world, "power");
+
+	[method: ObjectCreator.UseCtor]
+	public class BeaconOrderButtonLogic(Widget widget, World world)
+		: ChromeOrderButtonLogic<BeaconOrderGenerator>(widget, world, "beacon");
 }

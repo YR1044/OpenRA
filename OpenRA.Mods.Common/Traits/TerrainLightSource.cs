@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Numerics;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
@@ -24,7 +25,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		object INotifyEditorPlacementInfo.AddedToEditor(EditorActorPreview preview, World editorWorld)
 		{
-			var tint = new float3(RedTint, GreenTint, BlueTint);
+			var tint = new Vector3(RedTint, GreenTint, BlueTint);
 			return editorWorld.WorldActor.Trait<TerrainLighting>().AddLightSource(preview.CenterPosition, Range, Intensity, tint);
 		}
 
@@ -36,7 +37,7 @@ namespace OpenRA.Mods.Common.Traits
 		public void RulesetLoaded(Ruleset rules, ActorInfo ai)
 		{
 			if (!rules.Actors[SystemActors.World].HasTraitInfo<TerrainLightingInfo>())
-				throw new YamlException("TerrainLightSource can only be used with the world TerrainLighting trait.");
+				throw new YamlException($"{nameof(TerrainLightSource)} can only be used with the world {nameof(TerrainLighting)} trait.");
 		}
 
 		public override object Create(ActorInitializer init) { return new TerrainLightSource(init.Self, this); }
@@ -56,7 +57,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		void INotifyAddedToWorld.AddedToWorld(Actor self)
 		{
-			lightingToken = terrainLighting.AddLightSource(self.CenterPosition, info.Range, info.Intensity, new float3(info.RedTint, info.GreenTint, info.BlueTint));
+			lightingToken = terrainLighting.AddLightSource(self.CenterPosition, info.Range, info.Intensity, new Vector3(info.RedTint, info.GreenTint, info.BlueTint));
 		}
 
 		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)

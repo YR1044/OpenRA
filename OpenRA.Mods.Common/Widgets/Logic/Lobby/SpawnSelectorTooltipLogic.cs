@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,17 +10,35 @@
 #endregion
 
 using System;
-using System.Linq;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
 	public class SpawnSelectorTooltipLogic : ChromeLogic
 	{
+		[FluentReference("spawn")]
+		const string DisabledSpawn = "label-disabled-spawn";
+
+		[FluentReference("spawn")]
+		const string AvailableSpawn = "label-available-spawn";
+
+		[FluentReference("spawn")]
+		const string SpawnName = "label-spawn-name";
+
+		[FluentReference("team", "spawn")]
+		const string TeamSpawn = "label-team-spawn";
+
+		readonly CachedTransform<string, string> disabledSpawnMessage;
+		readonly CachedTransform<string, string> availableSpawnMessage;
+		readonly CachedTransform<string, string> spawnMessage;
+		readonly CachedTransform<(int Team, string Spawn), string> teamSpawnMessage;
+
 		[ObjectCreator.UseCtor]
-		public SpawnSelectorTooltipLogic(Widget widget, TooltipContainerWidget tooltipContainer, MapPreviewWidget preview, bool showUnoccupiedSpawnpoints)
+		public SpawnSelectorTooltipLogic(Widget widget, ModData modData,
+			TooltipContainerWidget tooltipContainer, MapPreviewWidget preview, bool showUnoccupiedSpawnpoints)
 		{
-			bool showTooltip = true;
+			var showTooltip = true;
 			widget.IsVisible = () => preview.TooltipSpawnIndex != -1 && showTooltip;
 			var label = widget.Get<LabelWidget>("LABEL");
 			var flag = widget.Get<ImageWidget>("FLAG");
@@ -36,18 +54,27 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var labelText = "";
 			string playerFaction = null;
 			var playerTeam = -1;
+			var playerSpawn = "";
+			var occupied = false;
+			disabledSpawnMessage = new CachedTransform<string, string>(s => FluentProvider.GetMessage(DisabledSpawn, "spawn", s));
+			availableSpawnMessage = new CachedTransform<string, string>(s => FluentProvider.GetMessage(AvailableSpawn, "spawn", s));
+			spawnMessage = new CachedTransform<string, string>(s => FluentProvider.GetMessage(SpawnName, "spawn", s));
+			teamSpawnMessage = new CachedTransform<(int Team, string Spawn), string>(
+				t => FluentProvider.GetMessage(TeamSpawn, "team", t.Team, "spawn", t.Spawn));
 
 			tooltipContainer.BeforeRender = () =>
 			{
 				showTooltip = true;
 
 				var teamWidth = 0;
+				playerSpawn = Convert.ToChar('A' - 1 + preview.TooltipSpawnIndex).ToString();
 				if (preview.SpawnOccupants().TryGetValue(preview.TooltipSpawnIndex, out var occupant))
 				{
 					labelText = occupant.PlayerName;
 					playerFaction = occupant.Faction;
 					playerTeam = occupant.Team;
-					widget.Bounds.Height = playerTeam > 0 ? doubleHeight : singleHeight;
+					occupied = true;
+					widget.Bounds.Height = doubleHeight;
 					teamWidth = teamFont.Measure(team.GetText()).X;
 				}
 				else
@@ -58,9 +85,13 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 						return;
 					}
 
-					labelText = preview.DisabledSpawnPoints().Contains(preview.TooltipSpawnIndex) ? "Disabled spawn" : "Available spawn";
+					labelText = preview.DisabledSpawnPoints().Contains(preview.TooltipSpawnIndex)
+						? disabledSpawnMessage.Update(playerSpawn)
+						: availableSpawnMessage.Update(playerSpawn);
+
 					playerFaction = null;
 					playerTeam = 0;
+					occupied = false;
 					widget.Bounds.Height = singleHeight;
 				}
 
@@ -75,8 +106,14 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			flag.IsVisible = () => playerFaction != null;
 			flag.GetImageCollection = () => "flags";
 			flag.GetImageName = () => playerFaction;
-			team.GetText = () => $"Team {playerTeam}";
-			team.IsVisible = () => playerTeam > 0;
+			team.GetText = () =>
+			{
+				if (!occupied)
+					return "";
+
+				return playerTeam > 0 ? teamSpawnMessage.Update((playerTeam, playerSpawn)) : spawnMessage.Update(playerSpawn);
+			};
+			team.IsVisible = () => occupied;
 		}
 	}
 }

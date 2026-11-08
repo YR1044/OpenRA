@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,14 +9,18 @@
  */
 #endregion
 
-using System.Collections.Generic;
+using System.Collections.Frozen;
+using System.Collections.Immutable;
+using OpenRA.Mods.Common.MapGenerator;
 
 namespace OpenRA.Mods.Common.Terrain
 {
 	public interface ITemplatedTerrainInfo : ITerrainInfo
 	{
-		string[] EditorTemplateOrder { get; }
-		IReadOnlyDictionary<ushort, TerrainTemplateInfo> Templates { get; }
+		ImmutableArray<string> EditorTemplateOrder { get; }
+		FrozenDictionary<ushort, TerrainTemplateInfo> Templates { get; }
+		ImmutableArray<TerrainTemplateInfo> TemplatesInDefinitionOrder { get; }
+		FrozenDictionary<string, ImmutableArray<MultiBrushInfo>> MultiBrushCollections { get; }
 	}
 
 	public interface ITerrainInfoNotifyMapCreated : ITerrainInfo
@@ -29,7 +33,7 @@ namespace OpenRA.Mods.Common.Terrain
 		public readonly ushort Id;
 		public readonly int2 Size;
 		public readonly bool PickAny;
-		public readonly string[] Categories;
+		public readonly ImmutableArray<string> Categories;
 
 		readonly TerrainTileInfo[] tileInfo;
 
@@ -37,7 +41,7 @@ namespace OpenRA.Mods.Common.Terrain
 		{
 			FieldLoader.Load(this, my);
 
-			var nodes = my.ToDictionary()["Tiles"].Nodes;
+			var nodes = my.NodeWithKey("Tiles").Value.Nodes;
 
 			if (!PickAny)
 			{
@@ -45,17 +49,20 @@ namespace OpenRA.Mods.Common.Terrain
 				foreach (var node in nodes)
 				{
 					if (!int.TryParse(node.Key, out var key))
-						throw new YamlException($"Tileset `{terrainInfo.Id}` template `{Id}` defines a frame `{node.Key}` that is not a valid integer.");
+						throw new YamlException(
+							$"Tileset `{terrainInfo.Id}` template `{Id}` defines a frame `{node.Key}` that is not a valid integer.");
 
 					if (key < 0 || key >= tileInfo.Length)
-						throw new YamlException($"Tileset `{terrainInfo.Id}` template `{Id}` references frame {key}, but only [0..{tileInfo.Length - 1}] are valid for a {Size.X}x{Size.Y} Size template.");
+						throw new YamlException(
+							$"Tileset `{terrainInfo.Id}` template `{Id}` references frame {key}, " +
+							$"but only [0..{tileInfo.Length - 1}] are valid for a {Size.X}x{Size.Y} Size template.");
 
 					tileInfo[key] = LoadTileInfo(terrainInfo, node.Value);
 				}
 			}
 			else
 			{
-				tileInfo = new TerrainTileInfo[nodes.Count];
+				tileInfo = new TerrainTileInfo[nodes.Length];
 
 				var i = 0;
 				foreach (var node in nodes)

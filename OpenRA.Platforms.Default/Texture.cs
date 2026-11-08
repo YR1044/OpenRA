@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -92,21 +92,31 @@ namespace OpenRA.Platforms.Default
 			}
 		}
 
-		// An array of RGBA
-		public void SetData(uint[,] colors)
+		void SetSubData(IntPtr data, int xoffset, int yoffset, int width, int height)
+		{
+			PrepareTexture();
+
+			OpenGL.glPixelStorei(OpenGL.GL_UNPACK_ROW_LENGTH, Size.Width);
+			OpenGL.glPixelStorei(OpenGL.GL_UNPACK_SKIP_PIXELS, xoffset);
+			OpenGL.glPixelStorei(OpenGL.GL_UNPACK_SKIP_ROWS, yoffset);
+
+			OpenGL.glTexSubImage2D(OpenGL.GL_TEXTURE_2D, 0, xoffset, yoffset, width, height,
+				OpenGL.GL_BGRA, OpenGL.GL_UNSIGNED_BYTE, data);
+
+			OpenGL.glPixelStorei(OpenGL.GL_UNPACK_ROW_LENGTH, 0);
+			OpenGL.glPixelStorei(OpenGL.GL_UNPACK_SKIP_PIXELS, 0);
+			OpenGL.glPixelStorei(OpenGL.GL_UNPACK_SKIP_ROWS, 0);
+
+			OpenGL.CheckGLError();
+		}
+
+		public void SetSubData(byte[] colors, int xoffset, int yoffset, int width, int height)
 		{
 			VerifyThreadAffinity();
-			var width = colors.GetUpperBound(1) + 1;
-			var height = colors.GetUpperBound(0) + 1;
-
-			if (!Exts.IsPowerOf2(width) || !Exts.IsPowerOf2(height))
-				throw new InvalidDataException($"Non-power-of-two array {width}x{height}");
-
-			Size = new Size(width, height);
 			unsafe
 			{
-				fixed (uint* ptr = &colors[0, 0])
-					SetData(new IntPtr(ptr), width, height);
+				fixed (byte* ptr = &colors[0])
+					SetSubData(new IntPtr(ptr), xoffset, yoffset, width, height);
 			}
 		}
 
@@ -114,7 +124,7 @@ namespace OpenRA.Platforms.Default
 		{
 			VerifyThreadAffinity();
 			if (!Exts.IsPowerOf2(width) || !Exts.IsPowerOf2(height))
-				throw new InvalidDataException("Non-power-of-two array {0}x{1}".F(width, height));
+				throw new InvalidDataException($"Non-power-of-two array {width}x{height}");
 
 			Size = new Size(width, height);
 			unsafe
@@ -127,6 +137,19 @@ namespace OpenRA.Platforms.Default
 					OpenGL.CheckGLError();
 				}
 			}
+		}
+
+		public void SetDataFromReadBuffer(Rectangle rect)
+		{
+			VerifyThreadAffinity();
+			if (!Exts.IsPowerOf2(rect.Width) || !Exts.IsPowerOf2(rect.Height))
+				throw new InvalidDataException($"Non-power-of-two rectangle {rect.Width}x{rect.Height}");
+
+			PrepareTexture();
+
+			var glInternalFormat = OpenGL.Profile == GLProfile.Embedded ? OpenGL.GL_BGRA : OpenGL.GL_RGBA8;
+			OpenGL.glCopyTexImage2D(OpenGL.GL_TEXTURE_2D, 0, glInternalFormat, rect.X, rect.Y, rect.Width, rect.Height, 0);
+			OpenGL.CheckGLError();
 		}
 
 		public byte[] GetData()
@@ -166,9 +189,7 @@ namespace OpenRA.Platforms.Default
 				{
 					for (var i = 0; i < 4 * Size.Width * Size.Height; i += 4)
 					{
-						var temp = data[i];
-						data[i] = data[i + 2];
-						data[i + 2] = temp;
+						(data[i + 2], data[i]) = (data[i], data[i + 2]);
 					}
 				}
 
@@ -183,7 +204,7 @@ namespace OpenRA.Platforms.Default
 				{
 					fixed (byte* ptr = &data[0])
 					{
-						var intPtr = new IntPtr((void*)ptr);
+						var intPtr = new IntPtr(ptr);
 						OpenGL.glGetTexImage(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_BGRA,
 							OpenGL.GL_UNSIGNED_BYTE, intPtr);
 					}
@@ -206,12 +227,6 @@ namespace OpenRA.Platforms.Default
 		}
 
 		public void Dispose()
-		{
-			Dispose(true);
-			GC.SuppressFinalize(this);
-		}
-
-		void Dispose(bool disposing)
 		{
 			if (disposed)
 				return;

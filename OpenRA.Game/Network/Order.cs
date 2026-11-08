@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,14 +11,16 @@
 
 using System;
 using System.IO;
-using OpenRA.Network;
 using OpenRA.Traits;
 
 namespace OpenRA
 {
 	public enum OrderType : byte
 	{
+		Ack = 0x10,
+		Ping = 0x20,
 		SyncHash = 0x65,
+		TickScale = 0x76,
 		Disconnect = 0xBF,
 		Handshake = 0xFE,
 		Fields = 0xFF
@@ -71,12 +73,13 @@ namespace OpenRA
 		public bool SuppressVisualFeedback;
 		public ref readonly Target VisualFeedbackTarget => ref visualFeedbackTarget;
 
-		public Player Player => Subject != null ? Subject.Owner : null;
+		public Player Player => Subject?.Owner;
 
 		readonly Target target;
 		readonly Target visualFeedbackTarget;
 
-		Order(string orderString, Actor subject, in Target target, string targetString, bool queued, Actor[] extraActors, CPos extraLocation, uint extraData, Actor[] groupedActors = null)
+		Order(string orderString, Actor subject, in Target target, string targetString, bool queued,
+			Actor[] extraActors, CPos extraLocation, uint extraData, Actor[] groupedActors = null)
 		{
 			OrderString = orderString ?? "";
 			Subject = subject;
@@ -115,47 +118,63 @@ namespace OpenRA
 							switch ((TargetType)r.ReadByte())
 							{
 								case TargetType.Actor:
-									{
-										if (world != null && TryGetActorFromUInt(world, r.ReadUInt32(), out var targetActor))
-											target = Target.FromActor(targetActor);
-										break;
-									}
+								{
+									var actorID = r.ReadUInt32();
+									var actorGeneration = r.ReadInt32();
+									if (world != null && TryGetActorFromUInt(world, actorID, out var targetActor))
+										target = Target.FromSerializedActor(targetActor, actorGeneration);
+
+									break;
+								}
 
 								case TargetType.FrozenActor:
-									{
-										var playerActorID = r.ReadUInt32();
-										var frozenActorID = r.ReadUInt32();
+								{
+									var playerActorID = r.ReadUInt32();
+									var frozenActorID = r.ReadUInt32();
 
-										if (world == null || !TryGetActorFromUInt(world, playerActorID, out var playerActor))
-											break;
-
-										if (playerActor.Owner.FrozenActorLayer == null)
-											break;
-
-										var frozen = playerActor.Owner.FrozenActorLayer.FromID(frozenActorID);
-										if (frozen != null)
-											target = Target.FromFrozenActor(frozen);
-
+									if (world == null || !TryGetActorFromUInt(world, playerActorID, out var playerActor))
 										break;
-									}
+
+									if (playerActor.Owner.FrozenActorLayer == null)
+										break;
+
+									var frozen = playerActor.Owner.FrozenActorLayer.FromID(frozenActorID);
+									if (frozen != null)
+										target = Target.FromFrozenActor(frozen);
+
+									break;
+								}
 
 								case TargetType.Terrain:
+								{
+									if (flags.HasField(OrderFields.TargetIsCell))
 									{
-										if (flags.HasField(OrderFields.TargetIsCell))
-										{
-											var cell = new CPos(r.ReadInt32());
-											var subCell = (SubCell)r.ReadByte();
-											if (world != null)
-												target = Target.FromCell(world, cell, subCell);
-										}
+										var cell = new CPos(r.ReadInt32());
+										var subCell = (SubCell)r.ReadByte();
+										if (world != null)
+											target = Target.FromCell(world, cell, subCell);
+									}
+									else
+									{
+										var pos = new WPos(r.ReadInt32(), r.ReadInt32(), r.ReadInt32());
+
+										var numberOfTerrainPositions = r.ReadInt16();
+										if (numberOfTerrainPositions == -1)
+											target = Target.FromPos(pos);
+										else if (!HasRemainingBytes(r, numberOfTerrainPositions, 3 * sizeof(int)))
+											return null;
 										else
 										{
-											var pos = new WPos(r.ReadInt32(), r.ReadInt32(), r.ReadInt32());
-											target = Target.FromPos(pos);
-										}
+											var terrainPositions = new WPos[numberOfTerrainPositions];
+											for (var i = 0; i < numberOfTerrainPositions; i++)
+												terrainPositions[i] = new WPos(r.ReadInt32(), r.ReadInt32(), r.ReadInt32());
 
-										break;
+											target = Target.FromSerializedTerrainPosition(pos, terrainPositions);
+										}
 									}
+
+									break;
+								}
 							}
 						}
 
@@ -165,7 +184,9 @@ namespace OpenRA
 						Actor[] extraActors = null;
 						if (flags.HasField(OrderFields.ExtraActors))
 						{
-							var count = r.ReadInt32();
+							if (!TryReadActorCount(r, out var count))
+								return null;
+
 							if (world != null)
 								extraActors = Exts.MakeArray(count, _ => world.GetActorById(r.ReadUInt32()));
 							else
@@ -178,7 +199,9 @@ namespace OpenRA
 						Actor[] groupedActors = null;
 						if (flags.HasField(OrderFields.Grouped))
 						{
-							var count = r.ReadInt32();
+							if (!TryReadActorCount(r, out var count))
+								return null;
+
 							if (world != null)
 								groupedActors = Exts.MakeArray(count, _ => world.GetActorById(r.ReadUInt32()));
 							else
@@ -204,7 +227,7 @@ namespace OpenRA
 
 					default:
 					{
-						Log.Write("debug", "Received unknown order with type {0}", type);
+						Log.Write("debug", $"Received unknown order with type {type}");
 						return null;
 					}
 				}
@@ -212,7 +235,7 @@ namespace OpenRA
 			catch (Exception e)
 			{
 				Log.Write("debug", "Caught exception while processing order");
-				Log.Write("debug", e.ToString());
+				Log.Write("debug", e);
 
 				// HACK: this can hopefully go away in the future
 				TextNotificationsManager.Debug("Ignoring malformed order that would have crashed the game");
@@ -220,6 +243,19 @@ namespace OpenRA
 
 				return null;
 			}
+		}
+
+		static bool TryReadActorCount(BinaryReader r, out int count)
+		{
+			count = r.ReadInt32();
+			return HasRemainingBytes(r, count, sizeof(uint));
+		}
+
+		static bool HasRemainingBytes(BinaryReader r, int count, int itemSize)
+		{
+			var remainingBytes = r.BaseStream.Length - r.BaseStream.Position;
+			return count >= 0 && count <= int.MaxValue / itemSize &&
+				count <= remainingBytes / itemSize;
 		}
 
 		static uint UIntFromActor(Actor a)
@@ -252,9 +288,22 @@ namespace OpenRA
 			return new Order(order, null, false) { IsImmediate = isImmediate, TargetString = targetString };
 		}
 
+		public static Order FromTargetString(string order, string targetString, bool isImmediate, uint extraData)
+		{
+			return new Order(order, null, false) { IsImmediate = isImmediate, TargetString = targetString, ExtraData = extraData };
+		}
+
 		public static Order FromGroupedOrder(Order grouped, Actor subject)
 		{
-			return new Order(grouped.OrderString, subject, grouped.Target, grouped.TargetString, grouped.Queued, grouped.ExtraActors, grouped.ExtraLocation, grouped.ExtraData);
+			return new Order(
+				grouped.OrderString,
+				subject,
+				grouped.Target,
+				grouped.TargetString,
+				grouped.Queued,
+				grouped.ExtraActors,
+				grouped.ExtraLocation,
+				grouped.ExtraData);
 		}
 
 		public static Order Command(string text)
@@ -324,6 +373,8 @@ namespace OpenRA
 
 				case OrderType.Fields:
 				{
+					var targetState = Target.SerializableState;
+
 					var fields = OrderFields.None;
 					if (Subject != null)
 						fields |= OrderFields.Subject;
@@ -334,7 +385,7 @@ namespace OpenRA
 					if (ExtraData != 0)
 						fields |= OrderFields.ExtraData;
 
-					if (Target.SerializableType != TargetType.Invalid)
+					if (targetState.Type != TargetType.Invalid)
 						fields |= OrderFields.Target;
 
 					if (Queued)
@@ -349,7 +400,7 @@ namespace OpenRA
 					if (ExtraLocation != CPos.Zero)
 						fields |= OrderFields.ExtraLocation;
 
-					if (Target.SerializableCell != null)
+					if (targetState.Cell != null)
 						fields |= OrderFields.TargetIsCell;
 
 					w.Write((short)fields);
@@ -359,11 +410,12 @@ namespace OpenRA
 
 					if (fields.HasField(OrderFields.Target))
 					{
-						w.Write((byte)Target.SerializableType);
-						switch (Target.SerializableType)
+						w.Write((byte)targetState.Type);
+						switch (targetState.Type)
 						{
 							case TargetType.Actor:
-								w.Write(UIntFromActor(Target.SerializableActor));
+								w.Write(UIntFromActor(targetState.Actor));
+								w.Write(targetState.Generation);
 								break;
 							case TargetType.FrozenActor:
 								w.Write(Target.FrozenActor.Viewer.PlayerActor.ActorID);
@@ -372,11 +424,31 @@ namespace OpenRA
 							case TargetType.Terrain:
 								if (fields.HasField(OrderFields.TargetIsCell))
 								{
-									w.Write(Target.SerializableCell.Value);
-									w.Write((byte)Target.SerializableSubCell);
+									w.Write(targetState.Cell.Value.Bits);
+									w.Write((byte)targetState.SubCell);
 								}
 								else
-									w.Write(Target.SerializablePos);
+								{
+									w.Write(targetState.Pos.X);
+									w.Write(targetState.Pos.Y);
+									w.Write(targetState.Pos.Z);
+
+									// Don't send extra data over the network that will be restored by the Target ctor
+									var terrainPositions = targetState.TerrainPositions.Length;
+									if (terrainPositions == 1 && targetState.TerrainPositions[0] == targetState.Pos)
+										w.Write((short)-1);
+									else
+									{
+										w.Write((short)terrainPositions);
+										foreach (var position in targetState.TerrainPositions)
+										{
+											w.Write(position.X);
+											w.Write(position.Y);
+											w.Write(position.Z);
+										}
+									}
+								}
+
 								break;
 						}
 					}
@@ -392,7 +464,7 @@ namespace OpenRA
 					}
 
 					if (fields.HasField(OrderFields.ExtraLocation))
-						w.Write(ExtraLocation);
+						w.Write(ExtraLocation.Bits);
 
 					if (fields.HasField(OrderFields.ExtraData))
 						w.Write(ExtraData);
@@ -417,7 +489,7 @@ namespace OpenRA
 		public override string ToString()
 		{
 			return $"OrderString: \"{OrderString}\" \n\t Type: \"{Type}\".  \n\t Subject: \"{Subject}\". \n\t Target: \"{Target}\"." +
-					$"\n\t TargetString: \"{TargetString}\".\n\t IsImmediate: {IsImmediate}.\n\t Player(PlayerName): {Player?.PlayerName}\n";
+					$"\n\t TargetString: \"{TargetString}\".\n\t IsImmediate: {IsImmediate}.\n\t Player(PlayerName): {Player?.ResolvedPlayerName}\n";
 		}
 	}
 }

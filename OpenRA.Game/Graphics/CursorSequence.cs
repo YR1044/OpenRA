@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,52 +9,44 @@
  */
 #endregion
 
-using System.Linq;
-
 namespace OpenRA.Graphics
 {
 	public class CursorSequence
 	{
 		public readonly string Name;
+		public readonly string Src;
 		public readonly int Start;
-		public readonly int Length;
+		public readonly int? Length;
 		public readonly string Palette;
 		public readonly int2 Hotspot;
 
-		public readonly ISpriteFrame[] Frames;
-
-		public CursorSequence(FrameCache cache, string name, string cursorSrc, string palette, MiniYaml info)
+		public CursorSequence(string name, string cursorSrc, string palette, MiniYaml info)
 		{
 			var d = info.ToDictionary();
 
-			Start = Exts.ParseIntegerInvariant(d["Start"].Value);
 			Palette = palette;
 			Name = name;
+			Src = cursorSrc;
 
-			Frames = cache[cursorSrc].Skip(Start).ToArray();
-
-			if ((d.ContainsKey("Length") && d["Length"].Value == "*") || (d.ContainsKey("End") && d["End"].Value == "*"))
-				Length = Frames.Length;
-			else if (d.ContainsKey("Length"))
-				Length = Exts.ParseIntegerInvariant(d["Length"].Value);
-			else if (d.ContainsKey("End"))
-				Length = Exts.ParseIntegerInvariant(d["End"].Value) - Start;
-			else
-				Length = 1;
-
-			Frames = Frames.Take(Length).ToArray();
-
-			if (d.ContainsKey("X"))
+			if (d.TryGetValue("X", out var yaml))
 			{
-				Exts.TryParseIntegerInvariant(d["X"].Value, out var x);
+				Exts.TryParseInt32Invariant(yaml.Value, out var x);
 				Hotspot = Hotspot.WithX(x);
 			}
 
-			if (d.ContainsKey("Y"))
+			if (d.TryGetValue("Y", out yaml))
 			{
-				Exts.TryParseIntegerInvariant(d["Y"].Value, out var y);
+				Exts.TryParseInt32Invariant(yaml.Value, out var y);
 				Hotspot = Hotspot.WithY(y);
 			}
+
+			Start = Exts.ParseInt32Invariant(d["Start"].Value);
+			if (d.TryGetValue("Length", out yaml))
+				Length = yaml.Value != "*" ? Exts.ParseInt32Invariant(yaml.Value) : null;
+			else if (d.TryGetValue("End", out yaml) && yaml.Value == "*")
+				Length = yaml.Value != "*" ? Exts.ParseInt32Invariant(yaml.Value) - Start : null;
+			else
+				Length = 1;
 		}
 	}
 }

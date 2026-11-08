@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,30 +10,37 @@
 #endregion
 
 using System.Collections.Generic;
-using OpenRA.Orders;
 
 namespace OpenRA.Mods.Common.Orders
 {
 	public class ForceModifiersOrderGenerator : UnitOrderGenerator
 	{
+		protected override MouseActionType ActionType => MouseActionType.ConfirmOrder;
 		public readonly Modifiers Modifiers;
 		readonly bool cancelOnFirstUse;
 
-		public ForceModifiersOrderGenerator(Modifiers modifiers, bool cancelOnFirstUse)
+		public ForceModifiersOrderGenerator(World world, Modifiers modifiers, bool cancelOnFirstUse)
+			: base(world)
 		{
 			Modifiers = modifiers;
 			this.cancelOnFirstUse = cancelOnFirstUse;
 		}
 
-		public override IEnumerable<Order> Order(World world, CPos cell, int2 worldPixel, MouseInput mi)
+		protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
 			mi.Modifiers |= Modifiers;
-
 			if (cancelOnFirstUse)
-				world.CancelInputMode();
+			{
+				if (!mi.Modifiers.HasModifier(Modifiers.Shift) || mi.Button == CancelButton)
+					world.CancelInputMode();
+				else
+					HasIssuedQueuedCommand = true;
+			}
 
-			return base.Order(world, cell, worldPixel, mi);
+			return base.OrderInner(world, cell, worldPixel, mi);
 		}
+
+		public override bool ClearSelectionOnLeftClick => false;
 
 		public override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{

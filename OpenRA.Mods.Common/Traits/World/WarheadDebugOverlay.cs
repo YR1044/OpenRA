@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Graphics;
 using OpenRA.Primitives;
@@ -28,33 +29,25 @@ namespace OpenRA.Mods.Common.Traits
 
 	public class WarheadDebugOverlay : IRenderAnnotations
 	{
-		class WHImpact
+		sealed class WHImpact(WPos pos, ImmutableArray<WDist> range, int time, Color color)
 		{
-			public readonly WPos CenterPosition;
-			public readonly WDist[] Range;
-			public readonly Color Color;
-			public int Time;
+			public readonly WPos CenterPosition = pos;
+			public readonly ImmutableArray<WDist> Range = range;
+			public readonly Color Color = color;
+			public int Time = time;
 
-			public WDist OuterRange => Range[Range.Length - 1];
-
-			public WHImpact(WPos pos, WDist[] range, int time, Color color)
-			{
-				CenterPosition = pos;
-				Range = range;
-				Color = color;
-				Time = time;
-			}
+			public WDist OuterRange => Range[^1];
 		}
 
 		readonly WarheadDebugOverlayInfo info;
-		readonly List<WHImpact> impacts = new List<WHImpact>();
+		readonly List<WHImpact> impacts = [];
 
 		public WarheadDebugOverlay(WarheadDebugOverlayInfo info)
 		{
 			this.info = info;
 		}
 
-		public void AddImpact(WPos pos, WDist[] range, Color color)
+		public void AddImpact(WPos pos, ImmutableArray<WDist> range, Color color)
 		{
 			impacts.Add(new WHImpact(pos, range, info.DisplayDuration, color));
 		}

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,40 +18,32 @@ namespace OpenRA.Mods.Common.Orders
 {
 	public abstract class GlobalButtonOrderGenerator<T> : OrderGenerator
 	{
-		string order;
+		readonly string order;
 
-		public GlobalButtonOrderGenerator(string order)
+		protected override MouseActionType ActionType => MouseActionType.GlobalCommand;
+
+		protected GlobalButtonOrderGenerator(World world, string order)
+			: base(world)
 		{
 			this.order = order;
 		}
 
-		protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
-		{
-			if (mi.Button == MouseButton.Right)
-				world.CancelInputMode();
-
-			return OrderInner(world, mi);
-		}
-
 		protected virtual bool IsValidTrait(T t)
 		{
-			return Exts.IsTraitEnabled(t);
+			return t.IsTraitEnabled();
 		}
 
-		protected IEnumerable<Order> OrderInner(World world, MouseInput mi)
+		protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
-			if (mi.Button == MouseButton.Left)
-			{
-				var underCursor = world.ScreenMap.ActorsAtMouse(mi)
-					.Select(a => a.Actor)
-					.FirstOrDefault(a => a.Owner == world.LocalPlayer && a.TraitsImplementing<T>()
-						.Any(IsValidTrait));
+			var underCursor = world.ScreenMap.ActorsAtMouse(mi)
+				.Select(a => a.Actor)
+				.FirstOrDefault(a => a.Owner == world.LocalPlayer && a.TraitsImplementing<T>()
+					.Any(IsValidTrait));
 
-				if (underCursor == null)
-					yield break;
+			if (underCursor == null)
+				yield break;
 
-				yield return new Order(order, underCursor, false);
-			}
+			yield return new Order(order, underCursor, false);
 		}
 
 		protected override void Tick(World world)
@@ -70,8 +62,8 @@ namespace OpenRA.Mods.Common.Orders
 
 	public class PowerDownOrderGenerator : GlobalButtonOrderGenerator<ToggleConditionOnOrder>
 	{
-		public PowerDownOrderGenerator()
-			: base("PowerDown") { }
+		public PowerDownOrderGenerator(World world)
+			: base(world, "PowerDown") { }
 
 		protected override bool IsValidTrait(ToggleConditionOnOrder t)
 		{
@@ -80,23 +72,20 @@ namespace OpenRA.Mods.Common.Orders
 
 		protected override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
-			mi.Button = MouseButton.Left;
-			return OrderInner(world, mi).Any() ? "powerdown" : "powerdown-blocked";
+			return OrderInner(world, cell, worldPixel, mi).Any() ? "powerdown" : "powerdown-blocked";
 		}
 	}
 
 	public class SellOrderGenerator : GlobalButtonOrderGenerator<Sellable>
 	{
-		public SellOrderGenerator()
-			: base("Sell") { }
+		public SellOrderGenerator(World world)
+			: base(world, "Sell") { }
 
 		protected override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
-			mi.Button = MouseButton.Left;
-
-			var cursor = OrderInner(world, mi)
+			var cursor = OrderInner(world, cell, worldPixel, mi)
 				.SelectMany(o => o.Subject.TraitsImplementing<Sellable>())
-				.Where(Exts.IsTraitEnabled)
+				.Where(t => !t.IsTraitDisabled)
 				.Select(si => si.Info.Cursor)
 				.FirstOrDefault();
 

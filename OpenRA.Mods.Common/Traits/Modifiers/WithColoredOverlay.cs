@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 using OpenRA.Traits;
@@ -27,14 +28,15 @@ namespace OpenRA.Mods.Common.Traits
 
 	public class WithColoredOverlay : ConditionalTrait<WithColoredOverlayInfo>, IRenderModifier
 	{
-		readonly float3 tint;
+		readonly Vector3 tint;
 		readonly float alpha;
 
 		public WithColoredOverlay(WithColoredOverlayInfo info)
 			: base(info)
 		{
-			tint = new float3(info.Color.R, info.Color.G, info.Color.B) / 255f;
-			alpha = info.Color.A / 255f;
+			var color = info.Color.ToVector4();
+			tint = color.AsVector3();
+			alpha = color.W;
 		}
 
 		IEnumerable<IRenderable> IRenderModifier.ModifyRender(Actor self, WorldRenderer wr, IEnumerable<IRenderable> r)
@@ -42,10 +44,10 @@ namespace OpenRA.Mods.Common.Traits
 			if (IsTraitDisabled)
 				return r;
 
-			return ModifiedRender(self, wr, r);
+			return ModifiedRender(r);
 		}
 
-		IEnumerable<IRenderable> ModifiedRender(Actor self, WorldRenderer wr, IEnumerable<IRenderable> r)
+		IEnumerable<IRenderable> ModifiedRender(IEnumerable<IRenderable> r)
 		{
 			foreach (var a in r)
 			{

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Network;
 using OpenRA.Primitives;
@@ -20,7 +21,17 @@ namespace OpenRA.Mods.Common.Widgets
 {
 	public static class WidgetUtils
 	{
-		public static string GetStatefulImageName(string baseName, bool disabled = false, bool pressed = false, bool hover = false, bool focused = false)
+		[FluentReference]
+		const string Gone = "label-client-state-disconnected";
+
+		[FluentReference]
+		const string Won = "label-win-state-won";
+
+		[FluentReference]
+		const string Lost = "label-win-state-lost";
+
+		public static string GetStatefulImageName(
+			string baseName, bool disabled = false, bool pressed = false, bool hover = false, bool focused = false)
 		{
 			var suffix = disabled ? "-disabled" :
 				focused ? "-focused" :
@@ -31,41 +42,56 @@ namespace OpenRA.Mods.Common.Widgets
 			return baseName + suffix;
 		}
 
-		public static CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused), Sprite> GetCachedStatefulImage(string collection, string baseName)
+		public static CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted), Sprite>
+			GetCachedStatefulImage(string collection, string imageName)
 		{
-			return new CachedTransform<(bool, bool, bool, bool), Sprite>(
-				((bool Disabled, bool Pressed, bool Hover, bool Focused) args) =>
+			return new CachedTransform<(bool, bool, bool, bool, bool), Sprite>(
+				((bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted) args) =>
 					{
-						var imageName = GetStatefulImageName(baseName, args.Disabled, args.Pressed, args.Hover, args.Focused);
-						return ChromeProvider.GetImage(collection, imageName) ?? ChromeProvider.GetImage(collection, baseName);
+						var collectionName = collection + (args.Highlighted ? "-highlighted" : "");
+						var variantImageName = GetStatefulImageName(imageName, args.Disabled, args.Pressed, args.Hover, args.Focused);
+						return ChromeProvider.TryGetImage(collectionName, variantImageName) ?? ChromeProvider.GetImage(collectionName, imageName);
 					});
 		}
 
-		public static void DrawSprite(Sprite s, float2 pos)
+		// TODO: refactor buttons and related UI to use this function
+		public static CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted), Sprite[]>
+			GetCachedStatefulPanelImages(string collection)
 		{
-			Game.Renderer.RgbaSpriteRenderer.DrawSprite(s, pos);
+			return new CachedTransform<(bool, bool, bool, bool, bool), Sprite[]>(
+				((bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted) args) =>
+					{
+						var collectionName = collection + (args.Highlighted ? "-highlighted" : "");
+						var variantCollectionName = GetStatefulImageName(collectionName, args.Disabled, args.Pressed, args.Hover, args.Focused);
+						return ChromeProvider.TryGetPanelImages(variantCollectionName) ?? ChromeProvider.GetPanelImages(collectionName);
+					});
 		}
 
-		public static void DrawSprite(Sprite s, float2 pos, Size size)
+		public static void DrawSprite(Sprite s, Vector2 pos)
 		{
-			var scale = new float3(size.Width / s.Size.X, size.Height / s.Size.Y, 1f);
-			Game.Renderer.RgbaSpriteRenderer.DrawSprite(s, pos, scale);
+			Game.Renderer.RgbaSpriteRenderer.DrawSprite(s, pos.AsVector3());
 		}
 
-		public static void DrawSprite(Sprite s, float2 pos, float2 size)
+		public static void DrawSprite(Sprite s, Vector2 pos, Size size)
 		{
-			var scale = new float3(size.X / s.Size.X, size.Y / s.Size.Y, 1f);
-			Game.Renderer.RgbaSpriteRenderer.DrawSprite(s, pos, scale);
+			var scale = new Vector3(size.Width / s.Size.X, size.Height / s.Size.Y, 1f);
+			Game.Renderer.RgbaSpriteRenderer.DrawSprite(s, pos.AsVector3(), scale);
 		}
 
-		public static void DrawSpriteCentered(Sprite s, PaletteReference p, float2 pos, float scale = 1f)
+		public static void DrawSprite(Sprite s, Vector2 pos, Vector2 size)
 		{
-			Game.Renderer.SpriteRenderer.DrawSprite(s, p, pos - 0.5f * scale * s.Size, scale);
+			var scale = new Vector3(size.X / s.Size.X, size.Y / s.Size.Y, 1f);
+			Game.Renderer.RgbaSpriteRenderer.DrawSprite(s, pos.AsVector3(), scale);
+		}
+
+		public static void DrawSpriteCentered(Sprite s, PaletteReference p, Vector2 pos, float scale = 1f)
+		{
+			Game.Renderer.SpriteRenderer.DrawSprite(s, p, pos.AsVector3() - 0.5f * scale * s.Size, scale);
 		}
 
 		public static void DrawPanel(string collection, Rectangle bounds)
 		{
-			var sprites = ChromeProvider.GetPanelImages(collection);
+			var sprites = ChromeProvider.TryGetPanelImages(collection);
 			if (sprites != null)
 				DrawPanel(bounds, sprites);
 		}
@@ -90,7 +116,7 @@ namespace OpenRA.Mods.Common.Widgets
 						ss = new Sprite(s.Sheet, rr, s.Channel, scale);
 					}
 
-					DrawSprite(ss, new float2(x, y));
+					DrawSprite(ss, new Vector2(x, y));
 				}
 			}
 		}
@@ -98,26 +124,26 @@ namespace OpenRA.Mods.Common.Widgets
 		public static void FillRectWithColor(Rectangle r, Color c)
 		{
 			// Offset to the edges of the pixels
-			var tl = new float2(r.Left - 0.5f, r.Top - 0.5f);
-			var br = new float2(r.Right - 0.5f, r.Bottom - 0.5f);
+			var tl = new Vector3(r.Left - 0.5f, r.Top - 0.5f, 0);
+			var br = new Vector3(r.Right - 0.5f, r.Bottom - 0.5f, 0);
 			Game.Renderer.RgbaColorRenderer.FillRect(tl, br, c);
 		}
 
 		public static void FillRectWithColor(Rectangle r, Color topLeftColor, Color topRightColor, Color bottomRightColor, Color bottomLeftColor)
 		{
-			var tl = new float2(r.Left - 0.5f, r.Top - 0.5f);
-			var br = new float2(r.Right - 0.5f, r.Bottom - 0.5f);
+			var tl = new Vector3(r.Left - 0.5f, r.Top - 0.5f, 0);
+			var br = new Vector3(r.Right - 0.5f, r.Bottom - 0.5f, 0);
 
-			var tr = new float3(br.X, tl.Y, 0);
-			var bl = new float3(tl.X, br.Y, 0);
+			var tr = new Vector3(br.X, tl.Y, 0);
+			var bl = new Vector3(tl.X, br.Y, 0);
 
 			Game.Renderer.RgbaColorRenderer.FillRect(tl, tr, br, bl, topLeftColor, topRightColor, bottomRightColor, bottomLeftColor);
 		}
 
 		public static void FillEllipseWithColor(Rectangle r, Color c)
 		{
-			var tl = new float2(r.Left, r.Top);
-			var br = new float2(r.Right, r.Bottom);
+			var tl = new Vector3(r.Left, r.Top, 0);
+			var br = new Vector3(r.Right, r.Bottom, 0);
 			Game.Renderer.RgbaColorRenderer.FillEllipse(tl, br, c);
 		}
 
@@ -172,19 +198,19 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// Top-left corner
 			if (sprites[0] != null)
-				DrawSprite(sprites[0], new float2(bounds.Left, bounds.Top));
+				DrawSprite(sprites[0], new Vector2(bounds.Left, bounds.Top));
 
 			// Top-right corner
 			if (sprites[2] != null)
-				DrawSprite(sprites[2], new float2(bounds.Right - sprites[2].Size.X, bounds.Top));
+				DrawSprite(sprites[2], new Vector2(bounds.Right - sprites[2].Size.X, bounds.Top));
 
 			// Bottom-left corner
 			if (sprites[6] != null)
-				DrawSprite(sprites[6], new float2(bounds.Left, bounds.Bottom - sprites[6].Size.Y));
+				DrawSprite(sprites[6], new Vector2(bounds.Left, bounds.Bottom - sprites[6].Size.Y));
 
 			// Bottom-right corner
 			if (sprites[8] != null)
-				DrawSprite(sprites[8], new float2(bounds.Right - sprites[8].Size.X, bounds.Bottom - sprites[8].Size.Y));
+				DrawSprite(sprites[8], new Vector2(bounds.Right - sprites[8].Size.X, bounds.Bottom - sprites[8].Size.Y));
 		}
 
 		public static string FormatTime(int ticks, int timestep)
@@ -236,7 +262,7 @@ namespace OpenRA.Mods.Common.Widgets
 						if (spaceIndex == -1)
 							break;
 
-						var fragmentWidth = font.Measure(line.Substring(0, spaceIndex)).X;
+						var fragmentWidth = font.Measure(line[..spaceIndex]).X;
 						if (fragmentWidth > width)
 							break;
 
@@ -245,8 +271,8 @@ namespace OpenRA.Mods.Common.Widgets
 
 					if (start > 0)
 					{
-						lines[i] = line.Substring(0, start - 1);
-						lines.Insert(i + 1, line.Substring(start));
+						lines[i] = line[..(start - 1)];
+						lines.Insert(i + 1, line[start..]);
 					}
 				}
 
@@ -265,7 +291,7 @@ namespace OpenRA.Mods.Common.Widgets
 			var trimmed = text;
 			while (trimmedWidth > width && trimmed.Length > 3)
 			{
-				trimmed = text.Substring(0, trimmed.Length - 4) + "...";
+				trimmed = text[..(trimmed.Length - 4)] + "...";
 				trimmedWidth = font.Measure(trimmed).X;
 			}
 
@@ -300,95 +326,104 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			var icon = button.Get<ImageWidget>("ICON");
 
-			var hasActiveImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-active") != null;
-			var hasActiveDisabledImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-active-disabled") != null;
-			var hasActivePressedImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-active-pressed") != null;
-			var hasActiveHoverImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-active-hover") != null;
-
-			var hasImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName) != null;
-			var hasDisabledImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-disabled") != null;
-			var hasPressedImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-pressed") != null;
-			var hasHoverImage = ChromeProvider.GetImage(icon.ImageCollection, icon.ImageName + "-hover") != null;
-
-			icon.GetImageName = () =>
-			{
-				var isActive = button.IsHighlighted();
-				var isDisabled = button.IsDisabled();
-				var isPressed = button.Depressed;
-				var isHovered = Ui.MouseOverWidget == button;
-
-				var baseName = button.IsHighlighted() ? icon.ImageName + "-active" : icon.ImageName;
-				var stateName = WidgetUtils.GetStatefulImageName(baseName, isDisabled, isPressed, isHovered);
-
-				if (isActive)
-				{
-					if (isDisabled)
-						return hasActiveDisabledImage ? stateName : hasActiveImage ? baseName : icon.ImageName;
-					else if (isPressed)
-						return hasActivePressedImage ? stateName : hasActiveImage ? baseName : icon.ImageName;
-					else if (isHovered)
-						return hasActiveHoverImage ? stateName : hasActiveImage ? baseName : icon.ImageName;
-					else
-						return hasActiveImage ? baseName : icon.ImageName;
-				}
-				else
-				{
-					if (isDisabled)
-						return hasDisabledImage ? stateName : baseName;
-					else if (isPressed)
-						return hasPressedImage ? stateName : baseName;
-					else if (isHovered)
-						return hasHoverImage ? stateName : baseName;
-					else
-						return baseName;
-				}
-			};
+			var cache = GetCachedStatefulImage(icon.ImageCollection, icon.ImageName);
+			icon.GetSprite = () => cache.Update((button.IsDisabled(), button.Depressed, Ui.MouseOverWidget == button, false, button.IsHighlighted()));
 		}
 
-		public static void BindPlayerNameAndStatus(LabelWidget label, Player p)
+		public static string WithSuffix(string name, WinState winState, Session.ClientState clientState)
 		{
-			var client = p.World.LobbyInfo.ClientWithIndex(p.ClientIndex);
-			var nameFont = Game.Renderer.Fonts[label.Font];
-			var name = new CachedTransform<(string Name, WinState WinState, Session.ClientState ClientState), string>(c =>
-			{
-				var suffix = c.WinState == WinState.Undefined ? "" : " (" + c.Item2 + ")";
-				if (c.ClientState == Session.ClientState.Disconnected)
-					suffix = " (Gone)";
+			if (clientState == Session.ClientState.Disconnected)
+				return name + " (" + FluentProvider.GetMessage(Gone) + ")";
 
-				return TruncateText(c.Name, label.Bounds.Width - nameFont.Measure(suffix).X, nameFont) + suffix;
+			if (winState == WinState.Won)
+				return name + " (" + FluentProvider.GetMessage(Won) + ")";
+
+			if (winState == WinState.Lost)
+				return name + " (" + FluentProvider.GetMessage(Lost) + ")";
+
+			return name;
+		}
+
+		public static void BindPlayerNameAndStatus(LabelWithTooltipWidget label, Player p)
+		{
+			var name = new CachedTransform<(WinState WinState, Session.ClientState ClientState), string>(c =>
+			{
+				var text = WithSuffix(p.ResolvedPlayerName, c.WinState, c.ClientState);
+				var truncatedText = TruncateText(text, label.Bounds.Width, Game.Renderer.Fonts[label.Font]);
+
+				if (text != truncatedText)
+					label.GetTooltipText = () => text;
+				else
+					label.GetTooltipText = null;
+
+				return truncatedText;
 			});
 
+			var client = p.World.LobbyInfo.ClientWithIndex(p.ClientIndex);
 			label.GetText = () =>
 			{
 				var clientState = client != null ? client.State : Session.ClientState.Ready;
-				return name.Update((p.PlayerName, p.WinState, clientState));
+				return name.Update((p.WinState, clientState));
 			};
-		}
-	}
 
-	public class CachedTransform<T, U>
-	{
-		readonly Func<T, U> transform;
-
-		bool initialized;
-		T lastInput;
-		U lastOutput;
-
-		public CachedTransform(Func<T, U> transform)
-		{
-			this.transform = transform;
+			// Trigger a tooltip update.
+			label.GetText();
 		}
 
-		public U Update(T input)
+		public static void SetupTextNotification(Widget notificationWidget, TextNotification notification, int boxWidth, bool withTimestamp)
 		{
-			if (initialized && ((input == null && lastInput == null) || (input != null && input.Equals(lastInput))))
-				return lastOutput;
+			var timeLabel = notificationWidget.GetOrNull<LabelWidget>("TIME");
+			var prefixLabel = notificationWidget.GetOrNull<LabelWidget>("PREFIX");
+			var textLabel = notificationWidget.Get<LabelWidget>("TEXT");
 
-			lastInput = input;
-			lastOutput = transform(input);
-			initialized = true;
+			var textFont = Game.Renderer.Fonts[textLabel.Font];
+			var textWidth = boxWidth - notificationWidget.Bounds.X - textLabel.Bounds.X;
 
-			return lastOutput;
+			var hasPrefix = !string.IsNullOrEmpty(notification.Prefix) && prefixLabel != null;
+			var timeOffset = 0;
+
+			if (withTimestamp && timeLabel != null)
+			{
+				var time = $"{notification.Time.Hour:D2}:{notification.Time.Minute:D2}";
+				timeOffset = timeLabel.Bounds.Width + timeLabel.Bounds.X;
+
+				timeLabel.GetText = () => time;
+
+				textWidth -= timeOffset;
+				textLabel.Bounds.X += timeOffset;
+
+				if (hasPrefix)
+					prefixLabel.Bounds.X += timeOffset;
+			}
+
+			if (hasPrefix)
+			{
+				var prefix = notification.Prefix + ":";
+				var prefixSize = Game.Renderer.Fonts[prefixLabel.Font].Measure(prefix);
+				var prefixOffset = prefixSize.X + prefixLabel.Bounds.X;
+
+				prefixLabel.GetColor = () => notification.PrefixColor ?? prefixLabel.TextColor;
+				prefixLabel.GetText = () => prefix;
+				prefixLabel.Bounds.Width = prefixSize.X;
+
+				textWidth -= prefixOffset;
+				textLabel.Bounds.X += prefixOffset - timeOffset;
+			}
+
+			textLabel.GetColor = () => notification.TextColor ?? textLabel.TextColor;
+			textLabel.Bounds.Width = textWidth;
+
+			// Hack around our hacky wordwrap behavior: need to resize the widget to fit the text
+			var text = WrapText(notification.Text, textLabel.Bounds.Width, textFont);
+			textLabel.GetText = () => text;
+			var dh = textFont.Measure(text).Y - textLabel.Bounds.Height;
+			if (dh > 0)
+			{
+				textLabel.Bounds.Height += dh;
+				notificationWidget.Bounds.Height += dh;
+			}
+
+			notificationWidget.Bounds.Width = boxWidth - notificationWidget.Bounds.X;
 		}
 	}
 }

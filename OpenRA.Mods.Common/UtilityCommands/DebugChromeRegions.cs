@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,12 +12,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 
 namespace OpenRA.Mods.Common.UtilityCommands
 {
-	class DebugChromeRegions : IUtilityCommand
+	sealed class DebugChromeRegions : IUtilityCommand
 	{
 		string IUtilityCommand.Name => "--debug-chrome-regions";
 
@@ -67,21 +68,24 @@ namespace OpenRA.Mods.Common.UtilityCommands
 					}
 				}
 
-				foreach (var kv in c.Value.Regions)
+				foreach (var kv in c.Value.Regions.OrderBy(kvp => kvp.Key))
 				{
 					var r = kv.Value;
 					regions.Add($"[\"{c.Key}.{kv.Key}\",{r.X},{r.Y},{r.Width},{r.Height}]");
 				}
 			}
 
-			var output = HtmlTemplate.JoinWith("\n").F(zoom, Convert.ToBase64String(modData.ModFiles.Open(image).ReadAllBytes()), "[" + regions.JoinWith(",") + "]");
+			var output = HtmlTemplate.JoinWith("\n").FormatInvariant(
+				zoom,
+				Convert.ToBase64String(modData.ModFiles.Open(image).ReadAllBytes()),
+				"[" + regions.JoinWith(",") + "]");
 			var outputPath = Path.ChangeExtension(image, ".html");
-			File.WriteAllLines(outputPath, new[] { output });
+			File.WriteAllLines(outputPath, [output]);
 			Console.WriteLine("Saved {0}", outputPath);
 		}
 
 		static readonly string[] HtmlTemplate =
-		{
+		[
 			"<!DOCTYPE html>",
 			"<html>",
 			"<head>",
@@ -134,6 +138,6 @@ namespace OpenRA.Mods.Common.UtilityCommands
 			"</script>",
 			"</body>",
 			"</html>",
-		};
+		];
 	}
 }

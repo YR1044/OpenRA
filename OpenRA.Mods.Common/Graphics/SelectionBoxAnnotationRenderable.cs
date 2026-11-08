@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 
@@ -16,7 +17,6 @@ namespace OpenRA.Mods.Common.Graphics
 {
 	public class SelectionBoxAnnotationRenderable : IRenderable, IFinalizedRenderable
 	{
-		readonly WPos pos;
 		readonly Rectangle decorationBounds;
 		readonly Color color;
 
@@ -25,35 +25,35 @@ namespace OpenRA.Mods.Common.Graphics
 
 		public SelectionBoxAnnotationRenderable(WPos pos, Rectangle decorationBounds, Color color)
 		{
-			this.pos = pos;
+			Pos = pos;
 			this.decorationBounds = decorationBounds;
 			this.color = color;
 		}
 
-		public WPos Pos => pos;
+		public WPos Pos { get; }
 
 		public int ZOffset => 0;
 		public bool IsDecoration => true;
 
 		public IRenderable WithZOffset(int newOffset) { return this; }
-		public IRenderable OffsetBy(in WVec vec) { return new SelectionBoxAnnotationRenderable(pos + vec, decorationBounds, color); }
+		public IRenderable OffsetBy(in WVec vec) { return new SelectionBoxAnnotationRenderable(Pos + vec, decorationBounds, color); }
 		public IRenderable AsDecoration() { return this; }
 
 		public IFinalizedRenderable PrepareRender(WorldRenderer wr) { return this; }
 		public void Render(WorldRenderer wr)
 		{
-			var tl = wr.Viewport.WorldToViewPx(new float2(decorationBounds.Left, decorationBounds.Top)).ToFloat2();
-			var br = wr.Viewport.WorldToViewPx(new float2(decorationBounds.Right, decorationBounds.Bottom)).ToFloat2();
-			var tr = new float2(br.X, tl.Y);
-			var bl = new float2(tl.X, br.Y);
-			var u = new float2(4, 0);
-			var v = new float2(0, 4);
+			var tl = wr.Viewport.WorldToViewPx(new Vector3(decorationBounds.Left, decorationBounds.Top, 0)).ToVector3();
+			var br = wr.Viewport.WorldToViewPx(new Vector3(decorationBounds.Right, decorationBounds.Bottom, 0)).ToVector3();
+			var tr = new Vector3(br.X, tl.Y, 0);
+			var bl = new Vector3(tl.X, br.Y, 0);
+			var u = new Vector3(4, 0, 0);
+			var v = new Vector3(0, 4, 0);
 
 			var cr = Game.Renderer.RgbaColorRenderer;
-			cr.DrawLine(new float3[] { tl + u, tl, tl + v }, 1, color, true);
-			cr.DrawLine(new float3[] { tr - u, tr, tr + v }, 1, color, true);
-			cr.DrawLine(new float3[] { br - u, br, br - v }, 1, color, true);
-			cr.DrawLine(new float3[] { bl + u, bl, bl - v }, 1, color, true);
+			cr.DrawLine([tl + u, tl, tl + v], 1, color, true);
+			cr.DrawLine([tr - u, tr, tr + v], 1, color, true);
+			cr.DrawLine([br - u, br, br - v], 1, color, true);
+			cr.DrawLine([bl + u, bl, bl - v], 1, color, true);
 		}
 
 		public void RenderDebugGeometry(WorldRenderer wr) { }

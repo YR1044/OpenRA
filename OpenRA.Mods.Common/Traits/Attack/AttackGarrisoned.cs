@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits.Render;
@@ -32,17 +33,17 @@ namespace OpenRA.Mods.Common.Traits
 	{
 		[FieldLoader.Require]
 		[Desc("Fire port offsets in local coordinates.")]
-		public readonly WVec[] PortOffsets = null;
+		public readonly ImmutableArray<WVec> PortOffsets = default;
 
 		[FieldLoader.Require]
 		[Desc("Fire port yaw angles.")]
-		public readonly WAngle[] PortYaws = null;
+		public readonly ImmutableArray<WAngle> PortYaws = default;
 
 		[FieldLoader.Require]
 		[Desc("Fire port yaw cone angle.")]
-		public readonly WAngle[] PortCones = null;
+		public readonly ImmutableArray<WAngle> PortCones = default;
 
-		public FirePort[] Ports { get; private set; }
+		public ImmutableArray<FirePort> Ports { get; private set; }
 
 		[PaletteReference]
 		public readonly string MuzzlePalette = "effect";
@@ -59,11 +60,11 @@ namespace OpenRA.Mods.Common.Traits
 			if (PortCones.Length != PortOffsets.Length)
 				throw new YamlException("PortCones must define an angle for each port.");
 
-			Ports = new FirePort[PortOffsets.Length];
+			var ports = new FirePort[PortOffsets.Length];
 
 			for (var i = 0; i < PortOffsets.Length; i++)
 			{
-				Ports[i] = new FirePort
+				ports[i] = new FirePort
 				{
 					Offset = PortOffsets[i],
 					Yaw = PortYaws[i],
@@ -71,30 +72,39 @@ namespace OpenRA.Mods.Common.Traits
 				};
 			}
 
+			Ports = ports.ToImmutableArray();
+
 			base.RulesetLoaded(rules, ai);
 		}
 	}
 
 	public class AttackGarrisoned : AttackFollow, INotifyPassengerEntered, INotifyPassengerExited, IRender
 	{
-		public readonly new AttackGarrisonedInfo Info;
-		Lazy<BodyOrientation> coords;
-		List<Armament> armaments;
-		List<AnimationWithOffset> muzzles;
-		Dictionary<Actor, IFacing> paxFacing;
-		Dictionary<Actor, IPositionable> paxPos;
-		Dictionary<Actor, RenderSprites> paxRender;
+		public new readonly AttackGarrisonedInfo Info;
+		INotifyAttack[] notifyAttacks;
+		readonly Lazy<BodyOrientation> coords;
+		readonly List<Armament> armaments;
+		readonly List<AnimationWithOffset> muzzles;
+		readonly Dictionary<Actor, IFacing> paxFacing;
+		readonly Dictionary<Actor, IPositionable> paxPos;
+		readonly Dictionary<Actor, RenderSprites> paxRender;
 
 		public AttackGarrisoned(Actor self, AttackGarrisonedInfo info)
 			: base(self, info)
 		{
 			Info = info;
-			coords = Exts.Lazy(() => self.Trait<BodyOrientation>());
-			armaments = new List<Armament>();
-			muzzles = new List<AnimationWithOffset>();
-			paxFacing = new Dictionary<Actor, IFacing>();
-			paxPos = new Dictionary<Actor, IPositionable>();
-			paxRender = new Dictionary<Actor, RenderSprites>();
+			coords = Exts.Lazy(self.Trait<BodyOrientation>);
+			armaments = [];
+			muzzles = [];
+			paxFacing = [];
+			paxPos = [];
+			paxRender = [];
+		}
+
+		protected override void Created(Actor self)
+		{
+			notifyAttacks = self.TraitsImplementing<INotifyAttack>().ToArray();
+			base.Created(self);
 		}
 
 		protected override Func<IEnumerable<Armament>> InitializeGetArmaments(Actor self)
@@ -107,9 +117,15 @@ namespace OpenRA.Mods.Common.Traits
 			paxFacing.Add(passenger, passenger.Trait<IFacing>());
 			paxPos.Add(passenger, passenger.Trait<IPositionable>());
 			paxRender.Add(passenger, passenger.Trait<RenderSprites>());
-			armaments.AddRange(
-				passenger.TraitsImplementing<Armament>()
-				.Where(a => Info.Armaments.Contains(a.Info.Name)));
+
+			foreach (var a in passenger.TraitsImplementing<Armament>())
+			{
+				if (Info.Armaments.Contains(a.Info.Name))
+				{
+					a.AddNotifyAttacks(self, notifyAttacks);
+					armaments.Add(a);
+				}
+			}
 		}
 
 		void INotifyPassengerExited.OnPassengerExited(Actor self, Actor passenger)
@@ -117,7 +133,15 @@ namespace OpenRA.Mods.Common.Traits
 			paxFacing.Remove(passenger);
 			paxPos.Remove(passenger);
 			paxRender.Remove(passenger);
-			armaments.RemoveAll(a => a.Actor == passenger);
+
+			foreach (var a in armaments.ToList())
+			{
+				if (a.Actor == passenger)
+				{
+					a.RemoveNotifyAttacks(notifyAttacks);
+					armaments.Remove(a);
+				}
+			}
 		}
 
 		FirePort SelectFirePort(Actor self, WAngle targetYaw)
@@ -139,7 +163,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		WVec PortOffset(Actor self, FirePort p)
 		{
-			var bodyOrientation = coords.Value.QuantizeOrientation(self, self.Orientation);
+			var bodyOrientation = coords.Value.QuantizeOrientation(self.Orientation);
 			return coords.Value.LocalToWorld(p.Offset.Rotate(bodyOrientation));
 		}
 
@@ -164,8 +188,7 @@ namespace OpenRA.Mods.Common.Traits
 				paxFacing[a.Actor].Facing = targetYaw;
 				paxPos[a.Actor].SetCenterPosition(a.Actor, pos + PortOffset(self, port));
 
-				var barrel = a.CheckFire(a.Actor, facing, target);
-				if (barrel == null)
+				if (!a.CheckFire(a.Actor, facing, target))
 					continue;
 
 				if (a.Info.MuzzleSequence != null)
@@ -181,9 +204,6 @@ namespace OpenRA.Mods.Common.Traits
 					muzzles.Add(muzzleFlash);
 					muzzleAnim.PlayThen(sequence, () => muzzles.Remove(muzzleFlash));
 				}
-
-				foreach (var npa in self.TraitsImplementing<INotifyAttack>())
-					npa.Attacking(self, target, a, barrel);
 			}
 		}
 
@@ -193,7 +213,7 @@ namespace OpenRA.Mods.Common.Traits
 
 			// Display muzzle flashes
 			foreach (var m in muzzles)
-				foreach (var r in m.Render(self, wr, pal))
+				foreach (var r in m.Render(self, pal))
 					yield return r;
 		}
 

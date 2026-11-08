@@ -1,4 +1,4 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: d2k
 
@@ -35,22 +35,24 @@ Players:
 		LockFaction: True
 		Faction: ordos
 		LockColor: True
-		Color: B3EAA5
+		Color: 5A9473
 		Enemies: Atreides, Harkonnen, Creeps
 	PlayerReference@Atreides:
 		Name: Atreides
+		Bot: campaign
 		LockFaction: True
 		Faction: atreides
 		LockColor: True
-		Color: 9191FF
+		Color: 5A7394
 		Allies: Harkonnen
 		Enemies: Ordos, Creeps
 	PlayerReference@Harkonnen:
 		Name: Harkonnen
+		Bot: campaign
 		LockFaction: True
 		Faction: harkonnen
 		LockColor: True
-		Color: FE0000
+		Color: D64A42
 		Allies: Atreides
 		Enemies: Ordos, Creeps
 
@@ -574,5 +576,26 @@ Actors:
 	HarkonnenEntry7: waypoint
 		Owner: Neutral
 		Location: 34,2
+	APatrolPoint1: waypoint
+		Owner: Neutral
+		Location: 46,7
+	APatrolPoint2: waypoint
+		Owner: Neutral
+		Location: 10,45
+	HPatrolPoint1: waypoint
+		Owner: Neutral
+		Location: 40,49
+	HPatrolPoint2: waypoint
+		Owner: Neutral
+		Location: 62,76
+	Actor2: frigate.debris
+		Owner: Creeps
+		Location: 73,55
+	Actor1: missile_tank.debris
+		Owner: Creeps
+		Facing: 384
+		Location: 72,53
 
 Rules: d2k|rules/campaign-rules.yaml, d2k|rules/campaign-tooltips.yaml, d2k|rules/campaign-palettes.yaml, rules.yaml
+
+FluentMessages: d2k|fluent/lua.ftl, d2k|fluent/campaign.ftl, map.ftl

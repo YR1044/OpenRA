@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,66 +11,114 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using OpenRA.Primitives;
+using OpenRA.Support;
 
 namespace OpenRA.Graphics
 {
 	public class SpriteRenderer : Renderer.IBatchRenderer
 	{
+		struct BlendSpan
+		{
+			public readonly int Start;
+			public int Length;
+			public readonly BlendMode Mode;
+
+			public BlendSpan(int start, int length, BlendMode mode)
+			{
+				Start = start;
+				Length = length;
+				Mode = mode;
+			}
+		}
+
 		public const int SheetCount = 8;
 		static readonly string[] SheetIndexToTextureName = Exts.MakeArray(SheetCount, i => $"Texture{i}");
+		static readonly int UintSize = Marshal.SizeOf<uint>();
 
 		readonly Renderer renderer;
 		readonly IShader shader;
+		readonly IVertexBuffer<Vertex> vertexBuffer;
+		readonly IIndexBuffer indexBuffer;
 
-		readonly Vertex[] vertices;
+		Vertex[] vertices;
 		readonly Sheet[] sheets = new Sheet[SheetCount];
 
-		BlendMode currentBlend = BlendMode.Alpha;
-		int nv = 0;
-		int ns = 0;
+		readonly List<BlendSpan> blendSpans = [];
+		int vertexCount = 0;
+		int sheetCount = 0;
 
-		public SpriteRenderer(Renderer renderer, IShader shader)
+		public SpriteRenderer(Renderer renderer, IVertexBuffer<Vertex> tempVertexBuffer, IIndexBuffer tempIndexBuffer, IShader shader)
 		{
 			this.renderer = renderer;
 			this.shader = shader;
-			vertices = new Vertex[renderer.TempBufferSize];
+			vertexBuffer = tempVertexBuffer;
+			indexBuffer = tempIndexBuffer;
+			vertices = renderer.Context.CreateVertices<Vertex>(renderer.TempVertexBufferSize);
 		}
 
 		public void Flush()
 		{
-			if (nv > 0)
-			{
-				for (var i = 0; i < ns; i++)
-				{
-					shader.SetTexture(SheetIndexToTextureName[i], sheets[i].GetTexture());
-					sheets[i] = null;
-				}
+			if (vertexCount <= 0)
+				return;
 
-				renderer.Context.SetBlendMode(currentBlend);
-				shader.PrepareRender();
-				renderer.DrawBatch(vertices, nv, PrimitiveType.TriangleList);
+			for (var i = 0; i < sheetCount; i++)
+				shader.SetTexture(SheetIndexToTextureName[i], sheets[i].GetTexture());
+
+			shader.PrepareRender();
+			vertexBuffer.SetData(ref vertices, vertexCount);
+			vertexBuffer.Bind();
+			indexBuffer.Bind();
+			shader.Bind();
+
+			// PERF: this allows us to batch render sprites with interleaved blend modes
+			// without expensive binding and data writing between draw calls.
+			foreach (var span in blendSpans)
+			{
+				if (span.Length <= 0)
+					continue;
+
+				renderer.Context.SetBlendMode(span.Mode);
+				renderer.Context.DrawElements(span.Length / 4 * 6, span.Start * 6);
+			}
+
+			if (blendSpans[^1].Mode != BlendMode.None)
 				renderer.Context.SetBlendMode(BlendMode.None);
 
-				nv = 0;
-				ns = 0;
+			PerfHistory.Increment("batches", 1);
+			blendSpans.Clear();
+			Array.Clear(sheets, 0, SheetCount);
+			vertexCount = 0;
+			sheetCount = 0;
+		}
+
+		void TrackQuad(BlendMode blendMode)
+		{
+			if (blendSpans.Count == 0 || blendSpans[^1].Mode != blendMode)
+				blendSpans.Add(new BlendSpan(vertexCount, 4, blendMode));
+			else
+			{
+				// PERF: modify in-place.
+				var span = CollectionsMarshal.AsSpan(blendSpans);
+				span[^1].Length += 4;
 			}
+
+			vertexCount += 4;
 		}
 
 		int2 SetRenderStateForSprite(Sprite s)
 		{
 			renderer.CurrentBatchRenderer = this;
 
-			if (s.BlendMode != currentBlend || nv + 6 > renderer.TempBufferSize)
+			if (vertexCount + 4 > renderer.TempVertexBufferSize)
 				Flush();
-
-			currentBlend = s.BlendMode;
 
 			// Check if the sheet (or secondary data sheet) have already been mapped
 			var sheet = s.Sheet;
 			var sheetIndex = 0;
-			for (; sheetIndex < ns; sheetIndex++)
+			for (; sheetIndex < sheetCount; sheetIndex++)
 				if (sheets[sheetIndex] == sheet)
 					break;
 
@@ -79,7 +127,7 @@ namespace OpenRA.Graphics
 			if (ss != null)
 			{
 				var secondarySheet = ss.SecondarySheet;
-				for (; secondarySheetIndex < ns; secondarySheetIndex++)
+				for (; secondarySheetIndex < sheetCount; secondarySheetIndex++)
 					if (sheets[secondarySheetIndex] == secondarySheet)
 						break;
 
@@ -98,22 +146,22 @@ namespace OpenRA.Graphics
 				secondarySheetIndex = ss != null && ss.SecondarySheet != sheet ? 1 : 0;
 			}
 
-			if (sheetIndex >= ns)
+			if (sheetIndex >= sheetCount)
 			{
 				sheets[sheetIndex] = sheet;
-				ns++;
+				sheetCount++;
 			}
 
-			if (secondarySheetIndex >= ns && ss != null)
+			if (secondarySheetIndex >= sheetCount && ss != null)
 			{
 				sheets[secondarySheetIndex] = ss.SecondarySheet;
-				ns++;
+				sheetCount++;
 			}
 
 			return new int2(sheetIndex, secondarySheetIndex);
 		}
 
-		float ResolveTextureIndex(Sprite s, PaletteReference pal)
+		static int ResolveTextureIndex(Sprite s, PaletteReference pal)
 		{
 			if (pal == null)
 				return 0;
@@ -127,45 +175,50 @@ namespace OpenRA.Graphics
 			return pal.TextureIndex;
 		}
 
-		internal void DrawSprite(Sprite s, float paletteTextureIndex, in float3 location, in float3 scale)
+		internal void DrawSprite(Sprite s, int paletteTextureIndex, in Vector3 location, in Vector3 scale, float rotation = 0f)
 		{
 			var samplers = SetRenderStateForSprite(s);
-			Util.FastCreateQuad(vertices, location + scale * s.Offset, s, samplers, paletteTextureIndex, nv, scale * s.Size, float3.Ones, 1f);
-			nv += 6;
+			Util.FastCreateQuad(vertices, location + scale * s.Offset, s, samplers, paletteTextureIndex, vertexCount, scale * s.Size, Vector3.One,
+								1f, rotation);
+			TrackQuad(s.BlendMode);
 		}
 
-		internal void DrawSprite(Sprite s, float paletteTextureIndex, in float3 location, float scale)
+		internal void DrawSprite(Sprite s, int paletteTextureIndex, in Vector3 location, float scale, float rotation = 0f)
 		{
 			var samplers = SetRenderStateForSprite(s);
-			Util.FastCreateQuad(vertices, location + scale * s.Offset, s, samplers, paletteTextureIndex, nv, scale * s.Size, float3.Ones, 1f);
-			nv += 6;
+			Util.FastCreateQuad(vertices, location + scale * s.Offset, s, samplers, paletteTextureIndex, vertexCount, scale * s.Size, Vector3.One,
+								1f, rotation);
+			TrackQuad(s.BlendMode);
 		}
 
-		public void DrawSprite(Sprite s, PaletteReference pal, in float3 location, float scale = 1f)
+		public void DrawSprite(Sprite s, PaletteReference pal, in Vector3 location, float scale = 1f, float rotation = 0f)
 		{
-			DrawSprite(s, ResolveTextureIndex(s, pal), location, scale);
+			DrawSprite(s, ResolveTextureIndex(s, pal), location, scale, rotation);
 		}
 
-		internal void DrawSprite(Sprite s, float paletteTextureIndex, in float3 location, float scale, in float3 tint, float alpha)
-		{
-			var samplers = SetRenderStateForSprite(s);
-			Util.FastCreateQuad(vertices, location + scale * s.Offset, s, samplers, paletteTextureIndex, nv, scale * s.Size, tint, alpha);
-			nv += 6;
-		}
-
-		public void DrawSprite(Sprite s, PaletteReference pal, in float3 location, float scale, in float3 tint, float alpha)
-		{
-			DrawSprite(s, ResolveTextureIndex(s, pal), location, scale, tint, alpha);
-		}
-
-		internal void DrawSprite(Sprite s, float paletteTextureIndex, in float3 a, in float3 b, in float3 c, in float3 d, in float3 tint, float alpha)
+		internal void DrawSprite(Sprite s, int paletteTextureIndex, in Vector3 location, float scale, in Vector3 tint, float alpha,
+			float rotation = 0f)
 		{
 			var samplers = SetRenderStateForSprite(s);
-			Util.FastCreateQuad(vertices, a, b, c, d, s, samplers, paletteTextureIndex, tint, alpha, nv);
-			nv += 6;
+			Util.FastCreateQuad(vertices, location + scale * s.Offset, s, samplers, paletteTextureIndex, vertexCount, scale * s.Size, tint, alpha,
+								rotation);
+			TrackQuad(s.BlendMode);
 		}
 
-		public void DrawVertexBuffer(IVertexBuffer<Vertex> buffer, int start, int length, PrimitiveType type, IEnumerable<Sheet> sheets, BlendMode blendMode)
+		public void DrawSprite(Sprite s, PaletteReference pal, in Vector3 location, float scale, in Vector3 tint, float alpha,
+			float rotation = 0f)
+		{
+			DrawSprite(s, ResolveTextureIndex(s, pal), location, scale, tint, alpha, rotation);
+		}
+
+		internal void DrawSprite(Sprite s, int paletteTextureIndex, in Vector3 a, in Vector3 b, in Vector3 c, in Vector3 d, in Vector3 tint, float alpha)
+		{
+			var samplers = SetRenderStateForSprite(s);
+			Util.FastCreateQuad(vertices, a, b, c, d, s, samplers, paletteTextureIndex, tint, alpha, vertexCount);
+			TrackQuad(s.BlendMode);
+		}
+
+		public void DrawVertexBuffer(IVertexBuffer<Vertex> buffer, IIndexBuffer indices, int start, int length, IEnumerable<Sheet> sheets, BlendMode blendMode)
 		{
 			var i = 0;
 			foreach (var s in sheets)
@@ -179,7 +232,7 @@ namespace OpenRA.Graphics
 
 			renderer.Context.SetBlendMode(blendMode);
 			shader.PrepareRender();
-			renderer.DrawBatch(buffer, start, length, type);
+			renderer.DrawQuadBatch(buffer, indices, shader, length, UintSize * start);
 			renderer.Context.SetBlendMode(BlendMode.None);
 		}
 
@@ -190,50 +243,63 @@ namespace OpenRA.Graphics
 		}
 
 		// For RGBAColorRenderer
-		internal void DrawRGBAVertices(Vertex[] v, BlendMode blendMode)
+		internal void DrawRGBAQuad(Vertex[] v, BlendMode blendMode)
 		{
 			renderer.CurrentBatchRenderer = this;
 
-			if (currentBlend != blendMode || nv + v.Length > renderer.TempBufferSize)
+			if (vertexCount + 4 > renderer.TempVertexBufferSize)
 				Flush();
 
-			currentBlend = blendMode;
-			Array.Copy(v, 0, vertices, nv, v.Length);
-			nv += v.Length;
+			Array.Copy(v, 0, vertices, vertexCount, v.Length);
+			TrackQuad(blendMode);
 		}
 
-		public void SetPalette(ITexture palette, ITexture colorShifts)
+		public void SetPalette(HardwarePalette palette)
 		{
-			shader.SetTexture("Palette", palette);
-			shader.SetTexture("ColorShifts", colorShifts);
+			shader.SetTexture("Palette", palette.Texture);
+			shader.SetTexture("ColorShifts", palette.ColorShifts);
+			shader.SetVec("PaletteRows", palette.Height);
 		}
 
 		public void SetViewportParams(Size sheetSize, int downscale, float depthMargin, int2 scroll)
 		{
-			// Calculate the effective size of the render surface in viewport pixels
-			var width = downscale * sheetSize.Width;
-			var height = downscale * sheetSize.Height;
-			var depthScale = height / (height + depthMargin);
-			var depthOffset = depthScale / 2;
-			shader.SetVec("Scroll", scroll.X, scroll.Y, scroll.Y);
-			shader.SetVec("r1",
-				2f / width,
-				2f / height,
-				-depthScale / height);
-			shader.SetVec("r2", -1, -1, 1 - depthOffset);
+			// OpenGL only renders x and y coordinates inside [-1, 1] range. We project world coordinates
+			// using p1 to values [0, 2] and then subtract by 1 using p2, where p stands for projection. It's
+			// standard practice for shaders to use a projection matrix, but as we project orthographically
+			// we are able to send less data to the GPU.
+			var width = 2f / (downscale * sheetSize.Width);
+			var height = 2f / (downscale * sheetSize.Height);
 
-			// Texture index is sampled as a float, so convert to pixels then scale
-			shader.SetVec("DepthTextureScale", 128 * depthScale / height);
+			// Depth is more complicated:
+			// * The OpenGL z axis is inverted (negative is closer) relative to OpenRA (positive is closer).
+			// * We want to avoid clipping pixels that are behind the nominal z == y plane at the
+			//   top of the map, or above the nominal z == y plane at the bottom of the map.
+			//   We therefore expand the depth range by an extra margin that is calculated based on
+			//   the maximum expected world height (see Renderer.InitializeDepthBuffer).
+			// * Sprites can specify an additional per-pixel depth offset map, which is applied in the
+			//   fragment shader. The fragment shader operates in OpenGL window coordinates, not NDC,
+			//   with a depth range [0, 1] corresponding to the NDC [-1, 1]. We must therefore multiply the
+			//   sprite channel value [0, 1] by 255 to find the pixel depth offset, then by our depth scale
+			//   to find the equivalent NDC offset, then divide by 2 to find the window coordinate offset.
+			// * If depthMargin == 0 (which indicates per-pixel depth testing is disabled) sprites that
+			//   extend beyond the top of bottom edges of the screen may be pushed outside [-1, 1] and
+			//   culled by the GPU. We avoid this by forcing everything into the z = 0 plane.
+			var depth = depthMargin != 0f ? 2f / (downscale * (sheetSize.Height + depthMargin)) : 0;
+			shader.SetVec("DepthTextureScale", 128 * depth);
+			shader.SetVec("Scroll", scroll.X, scroll.Y, depthMargin != 0f ? scroll.Y : 0);
+			shader.SetVec("p1", width, height, -depth);
+			shader.SetVec("p2", -1, -1, depthMargin != 0f ? 1 : 0);
 		}
 
-		public void SetDepthPreviewEnabled(bool enabled)
+		public void SetDepthPreview(bool enabled, float contrast, float offset)
 		{
 			shader.SetBool("EnableDepthPreview", enabled);
+			shader.SetVec("DepthPreviewParams", contrast, offset);
 		}
 
-		public void SetAntialiasingPixelsPerTexel(float pxPerTx)
+		public void EnablePixelArtScaling(bool enabled)
 		{
-			shader.SetVec("AntialiasPixelsPerTexel", pxPerTx);
+			shader.SetBool("EnablePixelArtScaling", enabled);
 		}
 	}
 }

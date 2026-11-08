@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,9 @@
  */
 #endregion
 
+using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Activities;
 using OpenRA.Mods.Common.Activities;
@@ -32,10 +34,13 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly string DeployedCondition = null;
 
 		[Desc("The terrain types that this actor can deploy on. Leave empty to allow any.")]
-		public readonly HashSet<string> AllowedTerrainTypes = new HashSet<string>();
+		public readonly FrozenSet<string> AllowedTerrainTypes = [];
 
 		[Desc("Can this actor deploy on slopes?")]
 		public readonly bool CanDeployOnRamps = false;
+
+		[Desc("Does this actor need to synchronize its deployment with other actors?")]
+		public readonly bool SmartDeploy = false;
 
 		[CursorReference]
 		[Desc("Cursor to display when able to (un)deploy the actor.")]
@@ -49,10 +54,10 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly WAngle? Facing = null;
 
 		[Desc("Play a randomly selected sound from this list when deploying.")]
-		public readonly string[] DeploySounds = null;
+		public readonly ImmutableArray<string> DeploySounds = default;
 
 		[Desc("Play a randomly selected sound from this list when undeploying.")]
-		public readonly string[] UndeploySounds = null;
+		public readonly ImmutableArray<string> UndeploySounds = default;
 
 		[Desc("Skip make/deploy animation?")]
 		public readonly bool SkipMakeAnimation = false;
@@ -81,9 +86,7 @@ namespace OpenRA.Mods.Common.Traits
 					return false;
 				},
 				(actor, value) =>
-				{
-					actor.ReplaceInit(new DeployStateInit(value ? DeployState.Deployed : DeployState.Undeployed));
-				});
+					actor.ReplaceInit(new DeployStateInit(value ? DeployState.Deployed : DeployState.Undeployed)));
 		}
 
 		public override object Create(ActorInitializer init) { return new GrantConditionOnDeploy(init, this); }
@@ -96,20 +99,18 @@ namespace OpenRA.Mods.Common.Traits
 	{
 		readonly Actor self;
 		readonly bool checkTerrainType;
-
-		DeployState deployState;
 		INotifyDeployTriggered[] notify;
 		int deployedToken = Actor.InvalidConditionToken;
 		int undeployedToken = Actor.InvalidConditionToken;
 
-		public DeployState DeployState => deployState;
+		public DeployState DeployState { get; private set; }
 
 		public GrantConditionOnDeploy(ActorInitializer init, GrantConditionOnDeployInfo info)
 			: base(info)
 		{
 			self = init.Self;
 			checkTerrainType = info.AllowedTerrainTypes.Count > 0;
-			deployState = init.GetValue<DeployStateInit, DeployState>(DeployState.Undeployed);
+			DeployState = init.GetValue<DeployStateInit, DeployState>(DeployState.Undeployed);
 		}
 
 		protected override void Created(Actor self)
@@ -117,14 +118,14 @@ namespace OpenRA.Mods.Common.Traits
 			notify = self.TraitsImplementing<INotifyDeployTriggered>().ToArray();
 			base.Created(self);
 
-			if (Info.Facing.HasValue && deployState != DeployState.Undeployed)
+			if (Info.Facing.HasValue && DeployState != DeployState.Undeployed)
 			{
 				var facing = self.TraitOrDefault<IFacing>();
 				if (facing != null)
 					facing.Facing = Info.Facing.Value;
 			}
 
-			switch (deployState)
+			switch (DeployState)
 			{
 				case DeployState.Undeployed:
 					OnUndeployCompleted();
@@ -155,10 +156,10 @@ namespace OpenRA.Mods.Common.Traits
 
 		bool IDelayCarryallPickup.TryLockForPickup(Actor self, Actor carrier)
 		{
-			if (!Info.UndeployOnPickup || deployState == DeployState.Undeployed || IsTraitDisabled)
+			if (!Info.UndeployOnPickup || DeployState == DeployState.Undeployed || IsTraitDisabled)
 				return true;
 
-			if (deployState == DeployState.Deployed && !IsTraitPaused)
+			if (DeployState == DeployState.Deployed && !IsTraitPaused)
 				Undeploy();
 
 			return false;
@@ -187,7 +188,26 @@ namespace OpenRA.Mods.Common.Traits
 			return new Order("GrantConditionOnDeploy", self, queued);
 		}
 
-		bool IIssueDeployOrder.CanIssueDeployOrder(Actor self, bool queued) { return !IsTraitPaused && !IsTraitDisabled; }
+		bool IIssueDeployOrder.CanIssueDeployOrder(Actor self, bool queued)
+		{
+			if (IsTraitPaused || IsTraitDisabled || self.IsDead || self.Disposed)
+				return false;
+
+			if (queued || !Info.SmartDeploy || DeployState == DeployState.Undeployed || DeployState == DeployState.Undeploying)
+				return true;
+
+			foreach (var actor in self.World.Selection.Actors)
+			{
+				if (actor == self || actor.IsDead || !actor.IsInWorld)
+					continue;
+
+				if (actor.TraitsImplementing<GrantConditionOnDeploy>()
+					.Any(d => !d.IsTraitPaused && !d.IsTraitDisabled && (d.DeployState == DeployState.Undeployed || d.DeployState == DeployState.Undeploying)))
+					return false;
+			}
+
+			return true;
+		}
 
 		public void ResolveOrder(Actor self, Order order)
 		{
@@ -210,7 +230,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (IsTraitPaused || IsTraitDisabled)
 				return false;
 
-			return IsValidTerrain(self.Location) || (deployState == DeployState.Deployed);
+			return IsValidTerrain(self.Location) || (DeployState == DeployState.Deployed);
 		}
 
 		public bool IsValidTerrain(CPos location)
@@ -255,13 +275,13 @@ namespace OpenRA.Mods.Common.Traits
 		void Deploy(bool init)
 		{
 			// Something went wrong, most likely due to deploy order spam and the fact that this is a delayed action.
-			if (!init && deployState != DeployState.Undeployed)
+			if (!init && DeployState != DeployState.Undeployed)
 				return;
 
 			if (!IsValidTerrain(self.Location))
 				return;
 
-			if (Info.DeploySounds != null && Info.DeploySounds.Any())
+			if (Info.DeploySounds != null && Info.DeploySounds.Length > 0)
 				Game.Sound.Play(SoundType.World, Info.DeploySounds, self.World, self.CenterPosition);
 
 			// Revoke condition that is applied while undeployed.
@@ -270,7 +290,7 @@ namespace OpenRA.Mods.Common.Traits
 
 			// If there is no animation to play just grant the condition that is used while deployed.
 			// Alternatively, play the deploy animation and then grant the condition.
-			if (!notify.Any())
+			if (notify.Length == 0)
 				OnDeployCompleted();
 			else
 				foreach (var n in notify)
@@ -282,10 +302,10 @@ namespace OpenRA.Mods.Common.Traits
 		void Undeploy(bool init)
 		{
 			// Something went wrong, most likely due to deploy order spam and the fact that this is a delayed action.
-			if (!init && deployState != DeployState.Deployed)
+			if (!init && DeployState != DeployState.Deployed)
 				return;
 
-			if (Info.UndeploySounds != null && Info.UndeploySounds.Any())
+			if (Info.UndeploySounds != null && Info.UndeploySounds.Length > 0)
 				Game.Sound.Play(SoundType.World, Info.UndeploySounds, self.World, self.CenterPosition);
 
 			if (!init)
@@ -293,7 +313,7 @@ namespace OpenRA.Mods.Common.Traits
 
 			// If there is no animation to play just grant the condition that is used while undeployed.
 			// Alternatively, play the undeploy animation and then grant the condition.
-			if (!notify.Any())
+			if (notify.Length == 0)
 				OnUndeployCompleted();
 			else
 				foreach (var n in notify)
@@ -305,7 +325,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (undeployedToken != Actor.InvalidConditionToken)
 				undeployedToken = self.RevokeCondition(undeployedToken);
 
-			deployState = DeployState.Deploying;
+			DeployState = DeployState.Deploying;
 		}
 
 		void OnDeployCompleted()
@@ -313,7 +333,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (deployedToken == Actor.InvalidConditionToken)
 				deployedToken = self.GrantCondition(Info.DeployedCondition);
 
-			deployState = DeployState.Deployed;
+			DeployState = DeployState.Deployed;
 		}
 
 		void OnUndeployStarted()
@@ -321,7 +341,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (deployedToken != Actor.InvalidConditionToken)
 				deployedToken = self.RevokeCondition(deployedToken);
 
-			deployState = DeployState.Deploying;
+			DeployState = DeployState.Deploying;
 		}
 
 		void OnUndeployCompleted()
@@ -329,7 +349,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (undeployedToken == Actor.InvalidConditionToken)
 				undeployedToken = self.GrantCondition(Info.UndeployedCondition);
 
-			deployState = DeployState.Undeployed;
+			DeployState = DeployState.Undeployed;
 		}
 	}
 

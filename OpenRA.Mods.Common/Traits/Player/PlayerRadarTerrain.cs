@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System;
+using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Traits;
 
@@ -29,7 +30,8 @@ namespace OpenRA.Mods.Common.Traits
 		public bool IsInitialized { get; private set; }
 
 		readonly World world;
-		CellLayer<(int, int)> terrainColor;
+		IRadarTerrainLayer[] radarTerrainLayers;
+		CellLayer<(uint, uint)> terrainColor;
 		readonly Shroud shroud;
 
 		public event Action<MPos> CellTerrainColorChanged = null;
@@ -50,23 +52,21 @@ namespace OpenRA.Mods.Common.Traits
 
 		void UpdateTerrainCell(MPos uv)
 		{
-			if (!world.Map.CustomTerrain.Contains(uv))
-				return;
-
 			if (shroud.IsVisible(uv))
 				UpdateTerrainCellColor(uv);
 		}
 
 		void UpdateTerrainCellColor(MPos uv)
 		{
-			terrainColor[uv] = GetColor(world.Map, uv);
+			terrainColor[uv] = GetColor(world.Map, radarTerrainLayers, uv);
 
 			CellTerrainColorChanged?.Invoke(uv);
 		}
 
 		public void WorldLoaded(World w, WorldRenderer wr)
 		{
-			terrainColor = new CellLayer<(int, int)>(w.Map);
+			radarTerrainLayers = w.WorldActor.TraitsImplementing<IRadarTerrainLayer>().ToArray();
+			terrainColor = new CellLayer<(uint, uint)>(w.Map);
 
 			w.AddFrameEndTask(_ =>
 			{
@@ -75,25 +75,23 @@ namespace OpenRA.Mods.Common.Traits
 					UpdateTerrainCellColor(uv);
 
 				world.Map.Tiles.CellEntryChanged += cell => UpdateTerrainCell(cell.ToMPos(world.Map));
-				world.Map.CustomTerrain.CellEntryChanged += cell => UpdateTerrainCell(cell.ToMPos(world.Map));
+				foreach (var rtl in radarTerrainLayers)
+					rtl.CellEntryChanged += cell => UpdateTerrainCell(cell.ToMPos(world.Map));
 
 				IsInitialized = true;
 			});
 		}
 
-		public (int Left, int Right) this[MPos uv] => terrainColor[uv];
+		public (uint Left, uint Right) this[MPos uv] => terrainColor[uv];
 
-		public static (int Left, int Right) GetColor(Map map, MPos uv)
+		public static (uint Left, uint Right) GetColor(Map map, IRadarTerrainLayer[] radarTerrainLayers, MPos uv)
 		{
-			var custom = map.CustomTerrain[uv];
-			if (custom != byte.MaxValue)
-			{
-				var c = map.Rules.TerrainInfo.TerrainTypes[custom].Color.ToArgb();
-				return (c, c);
-			}
+			foreach (var rtl in radarTerrainLayers)
+				if (rtl.TryGetTerrainColorPair(uv, out var c))
+					return (c.Left.ToArgb(), c.Right.ToArgb());
 
-			var tc = map.GetTerrainColorPair(uv);
-			return (tc.Left.ToArgb(), tc.Right.ToArgb());
+			var (left, right) = map.GetTerrainColorPair(uv);
+			return (left.ToArgb(), right.ToArgb());
 		}
 	}
 }

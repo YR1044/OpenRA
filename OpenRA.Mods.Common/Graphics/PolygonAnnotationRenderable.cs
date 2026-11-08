@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 
@@ -18,29 +19,28 @@ namespace OpenRA.Mods.Common.Graphics
 	public class PolygonAnnotationRenderable : IRenderable, IFinalizedRenderable
 	{
 		readonly WPos[] vertices;
-		readonly WPos effectivePos;
 		readonly int width;
 		readonly Color color;
 
 		public PolygonAnnotationRenderable(WPos[] vertices, WPos effectivePos, int width, Color color)
 		{
 			this.vertices = vertices;
-			this.effectivePos = effectivePos;
+			Pos = effectivePos;
 			this.width = width;
 			this.color = color;
 		}
 
-		public WPos Pos => effectivePos;
+		public WPos Pos { get; }
 		public int ZOffset => 0;
 		public bool IsDecoration => true;
 
-		public IRenderable WithZOffset(int newOffset) { return new PolygonAnnotationRenderable(vertices, effectivePos, width, color); }
+		public IRenderable WithZOffset(int newOffset) { return new PolygonAnnotationRenderable(vertices, Pos, width, color); }
 
 		public IRenderable OffsetBy(in WVec vec)
 		{
 			// Lambdas can't use 'in' variables, so capture a copy for later
 			var offset = vec;
-			return new PolygonAnnotationRenderable(vertices.Select(v => v + offset).ToArray(), effectivePos + vec, width, color);
+			return new PolygonAnnotationRenderable(vertices.Select(v => v + offset).ToArray(), Pos + vec, width, color);
 		}
 
 		public IRenderable AsDecoration() { return this; }
@@ -48,7 +48,7 @@ namespace OpenRA.Mods.Common.Graphics
 		public IFinalizedRenderable PrepareRender(WorldRenderer wr) { return this; }
 		public void Render(WorldRenderer wr)
 		{
-			var verts = vertices.Select(v => wr.Viewport.WorldToViewPx(wr.ScreenPosition(v)).ToFloat2()).ToArray();
+			var verts = vertices.Select(v => wr.Viewport.WorldToViewPx(wr.ScreenPosition(v).AsVector3()).ToVector2()).ToArray();
 			Game.Renderer.RgbaColorRenderer.DrawPolygon(verts, width, color);
 		}
 

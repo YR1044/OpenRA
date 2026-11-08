@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Collections.Frozen;
 using System.Collections.Generic;
 
 namespace OpenRA
@@ -23,15 +24,15 @@ namespace OpenRA
 	public class Fonts : IGlobalModData
 	{
 		[FieldLoader.LoadUsing(nameof(LoadFonts))]
-		public readonly Dictionary<string, FontData> FontList;
+		public readonly FrozenDictionary<string, FontData> FontList;
 
 		static object LoadFonts(MiniYaml y)
 		{
-			var ret = new Dictionary<string, FontData>();
+			var ret = new Dictionary<string, FontData>(y.Nodes.Length);
 			foreach (var node in y.Nodes)
 				ret.Add(node.Key, FieldLoader.Load<FontData>(node.Value));
 
-			return ret;
+			return ret.ToFrozenDictionary();
 		}
 	}
 }

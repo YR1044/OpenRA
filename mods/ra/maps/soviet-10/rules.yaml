@@ -1,19 +1,20 @@
 World:
 	LuaScript:
-		Scripts: campaign-global.lua, soviet10.lua
+		Scripts: campaign.lua, utils.lua, soviet10.lua
 	MissionData:
-		Briefing: You must defend a Soviet convoy that is moving through Allied occupied territory. Using the new MIG jet and a compliment of Yaks, get the convoy through the area intact.\n\nBe careful -- your resources for this mission are very limited. If at least one truck makes it through to the other side, the mission will be a success.
+		Briefing: briefing
 		BriefingVideo: soviet10.vqa
 		WinVideo: mig.vqa
 		LossVideo: aagun.vqa
 		StartVideo: airfield.vqa
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
 		Default: normal
 
 Player:
@@ -24,7 +25,6 @@ ENGIDROP:
 	ParatroopersPower:
 		DisplayBeacon: False
 		DropItems: E6, E6, E6
-	AlwaysVisible:
 
 AFLD:
 	ParatroopersPower@paratroopers:

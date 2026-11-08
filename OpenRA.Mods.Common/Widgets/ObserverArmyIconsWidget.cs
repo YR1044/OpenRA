@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,7 +11,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Primitives;
@@ -29,7 +31,7 @@ namespace OpenRA.Mods.Common.Widgets
 		public int IconHeight = 24;
 		public int IconSpacing = 1;
 
-		float2 iconSize;
+		readonly Vector2 iconSize;
 		public int MinWidth = 240;
 
 		public ArmyUnit TooltipUnit { get; private set; }
@@ -39,9 +41,9 @@ namespace OpenRA.Mods.Common.Widgets
 		public readonly string TooltipContainer;
 
 		readonly Lazy<TooltipContainerWidget> tooltipContainer;
-		readonly List<ArmyIcon> armyIcons = new List<ArmyIcon>();
+		readonly List<ArmyIcon> armyIcons = [];
 
-		readonly CachedTransform<Player, PlayerStatistics> stats = new CachedTransform<Player, PlayerStatistics>(player => player.PlayerActor.TraitOrDefault<PlayerStatistics>());
+		readonly CachedTransform<Player, PlayerStatistics> stats = new(player => player.PlayerActor.TraitOrDefault<PlayerStatistics>());
 
 		int lastIconIdx;
 		int currentTooltipToken;
@@ -67,7 +69,7 @@ namespace OpenRA.Mods.Common.Widgets
 			IconWidth = other.IconWidth;
 			IconHeight = other.IconHeight;
 			IconSpacing = other.IconSpacing;
-			iconSize = new float2(IconWidth, IconHeight);
+			iconSize = new Vector2(IconWidth, IconHeight);
 
 			MinWidth = other.MinWidth;
 
@@ -108,7 +110,7 @@ namespace OpenRA.Mods.Common.Widgets
 				var centerPosition = iconTopLeft;
 
 				var palette = unit.IconPaletteIsPlayerPalette ? unit.IconPalette + player.InternalName : unit.IconPalette;
-				WidgetUtils.DrawSpriteCentered(icon.Image, worldRenderer.Palette(palette), centerPosition + 0.5f * iconSize, 0.5f);
+				WidgetUtils.DrawSpriteCentered(icon.Image, worldRenderer.Palette(palette), centerPosition.ToVector2() + 0.5f * iconSize, 0.5f);
 
 				armyIcons.Add(new ArmyIcon
 				{
@@ -137,8 +139,8 @@ namespace OpenRA.Mods.Common.Widgets
 			var bold = Game.Renderer.Fonts["TinyBold"];
 			foreach (var armyIcon in armyIcons)
 			{
-				var text = armyIcon.Unit.Count.ToString();
-				bold.DrawTextWithContrast(text, armyIcon.Bounds.Location + new float2(iconSize.X, 0) - new float2(bold.Measure(text).X, bold.TopOffset),
+				var text = armyIcon.Unit.Count.ToString(NumberFormatInfo.CurrentInfo);
+				bold.DrawTextWithContrast(text, armyIcon.Bounds.Location.ToVector2() + new Vector2(iconSize.X, 0) - new Vector2(bold.Measure(text).X, bold.TopOffset),
 					Color.White, Color.Black, 1);
 			}
 
@@ -156,7 +158,7 @@ namespace OpenRA.Mods.Common.Widgets
 			Parent.Parent.Bounds.Width = Math.Max(25 + widestChildWidth, Bounds.Left + MinWidth);
 		}
 
-		public override Widget Clone()
+		public override ObserverArmyIconsWidget Clone()
 		{
 			return new ObserverArmyIconsWidget(this);
 		}
@@ -201,7 +203,7 @@ namespace OpenRA.Mods.Common.Widgets
 			TooltipUnit = null;
 		}
 
-		class ArmyIcon
+		sealed class ArmyIcon
 		{
 			public Rectangle Bounds { get; set; }
 			public ArmyUnit Unit { get; set; }

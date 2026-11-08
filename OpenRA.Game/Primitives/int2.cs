@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,16 +11,20 @@
 
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using OpenRA.Primitives;
 
 namespace OpenRA
 {
-	[SuppressMessage("StyleCop.CSharp.NamingRules", "SA1300:ElementMustBeginWithUpperCaseLetter", Justification = "Mimic a built-in type alias.")]
+	[SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "Mimic a built-in type alias.")]
 	public readonly struct int2 : IEquatable<int2>
 	{
 		public readonly int X, Y;
 		public int2(int x, int y) { X = x; Y = y; }
 		public int2(Size p) { X = p.Width; Y = p.Height; }
+
+		public static int2 FromVector(Vector2 v) { return new int2((int)v.X, (int)v.Y); }
+		public static int2 FromVector(Vector3 v) { return new int2((int)v.X, (int)v.Y); }
 
 		public static int2 operator +(int2 a, int2 b) { return new int2(a.X + b.X, a.Y + b.Y); }
 		public static int2 operator +(int2 a, Size b) { return new int2(a.X + b.Width, a.Y + b.Height); }
@@ -37,7 +41,7 @@ namespace OpenRA
 		public override int GetHashCode() { return X.GetHashCode() ^ Y.GetHashCode(); }
 
 		public bool Equals(int2 other) { return this == other; }
-		public override bool Equals(object obj) { return obj is int2 && Equals((int2)obj); }
+		public override bool Equals(object obj) { return obj is int2 vec && Equals(vec); }
 
 		public override string ToString() { return X + "," + Y; }
 
@@ -59,8 +63,10 @@ namespace OpenRA
 		public static int2 Max(int2 a, int2 b) { return new int2(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y)); }
 		public static int2 Min(int2 a, int2 b) { return new int2(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y)); }
 
-		public static readonly int2 Zero = new int2(0, 0);
-		public float2 ToFloat2() { return new float2(X, Y); }
+		public static readonly int2 Zero = new(0, 0);
+
+		public Vector2 ToVector2() { return new Vector2(X, Y); }
+		public Vector3 ToVector3() { return new Vector3(X, Y, 0); }
 
 		// Change endianness of a uint32
 		public static uint Swap(uint orig)

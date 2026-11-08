@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Orders;
 using OpenRA.Primitives;
@@ -33,7 +34,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		protected virtual IPlaceBuildingPreview CreatePreview(WorldRenderer wr, ActorInfo ai, TypeDictionary init)
 		{
-			return new FootprintPlaceBuildingPreviewPreview(wr, ai, this, init);
+			return new FootprintPlaceBuildingPreviewPreview(wr, ai, this);
 		}
 
 		IPlaceBuildingPreview IPlaceBuildingPreviewGeneratorInfo.CreatePreview(WorldRenderer wr, ActorInfo ai, TypeDictionary init)
@@ -46,39 +47,40 @@ namespace OpenRA.Mods.Common.Traits
 
 	public class FootprintPlaceBuildingPreviewPreview : IPlaceBuildingPreview
 	{
-		protected readonly ActorInfo actorInfo;
-		protected readonly WVec centerOffset;
+		protected readonly ActorInfo ActorInfo;
+		protected readonly WVec CenterOffset;
 		readonly FootprintPlaceBuildingPreviewInfo info;
 		readonly IPlaceBuildingDecorationInfo[] decorations;
 		readonly int2 topLeftScreenOffset;
 		readonly Sprite validTile, blockedTile;
 		readonly float validAlpha, blockedAlpha;
 
-		public FootprintPlaceBuildingPreviewPreview(WorldRenderer wr, ActorInfo ai, FootprintPlaceBuildingPreviewInfo info, TypeDictionary init)
+		public FootprintPlaceBuildingPreviewPreview(WorldRenderer wr, ActorInfo ai, FootprintPlaceBuildingPreviewInfo info)
 		{
-			actorInfo = ai;
+			ActorInfo = ai;
 			this.info = info;
-			decorations = actorInfo.TraitInfos<IPlaceBuildingDecorationInfo>().ToArray();
+			decorations = ActorInfo.TraitInfos<IPlaceBuildingDecorationInfo>().ToArray();
 
 			var world = wr.World;
-			centerOffset = actorInfo.TraitInfo<BuildingInfo>().CenterOffset(world);
-			topLeftScreenOffset = -wr.ScreenPxOffset(centerOffset);
+			CenterOffset = ActorInfo.TraitInfo<BuildingInfo>().CenterOffset(world);
+			topLeftScreenOffset = -wr.ScreenPxOffset(CenterOffset);
 
 			var tileset = world.Map.Tileset.ToLowerInvariant();
-			if (world.Map.Rules.Sequences.HasSequence("overlay", $"build-valid-{tileset}"))
+			var sequences = world.Map.Sequences;
+			if (sequences.HasSequence("overlay", $"build-valid-{tileset}"))
 			{
-				var validSequence = world.Map.Rules.Sequences.GetSequence("overlay", $"build-valid-{tileset}");
+				var validSequence = sequences.GetSequence("overlay", $"build-valid-{tileset}");
 				validTile = validSequence.GetSprite(0);
 				validAlpha = validSequence.GetAlpha(0);
 			}
 			else
 			{
-				var validSequence = world.Map.Rules.Sequences.GetSequence("overlay", "build-valid");
+				var validSequence = sequences.GetSequence("overlay", "build-valid");
 				validTile = validSequence.GetSprite(0);
 				validAlpha = validSequence.GetAlpha(0);
 			}
 
-			var blockedSequence = world.Map.Rules.Sequences.GetSequence("overlay", "build-invalid");
+			var blockedSequence = sequences.GetSequence("overlay", "build-invalid");
 			blockedTile = blockedSequence.GetSprite(0);
 			blockedAlpha = blockedSequence.GetAlpha(0);
 		}
@@ -100,15 +102,15 @@ namespace OpenRA.Mods.Common.Traits
 				var pos = wr.World.Map.CenterOfCell(c.Key);
 				var offset = new WVec(0, 0, topLeftPos.Z - pos.Z);
 				var traitAlpha = (c.Value & PlaceBuildingCellType.LineBuild) != 0 ? info.LineBuildFootprintAlpha : info.FootprintAlpha;
-				yield return new SpriteRenderable(tile, pos, offset, -511, palette, 1f, sequenceAlpha * traitAlpha, float3.Ones, TintModifiers.IgnoreWorldTint, true);
+				yield return new SpriteRenderable(tile, pos, offset, -511, palette, 1f, sequenceAlpha * traitAlpha, Vector3.One, TintModifiers.IgnoreWorldTint, true);
 			}
 		}
 
 		protected virtual IEnumerable<IRenderable> RenderAnnotations(WorldRenderer wr, CPos topLeft)
 		{
-			var centerPosition = wr.World.Map.CenterOfCell(topLeft) + centerOffset;
+			var centerPosition = wr.World.Map.CenterOfCell(topLeft) + CenterOffset;
 			foreach (var d in decorations)
-				foreach (var r in d.RenderAnnotations(wr, wr.World, actorInfo, centerPosition))
+				foreach (var r in d.RenderAnnotations(wr, wr.World, ActorInfo, centerPosition))
 					yield return r;
 		}
 

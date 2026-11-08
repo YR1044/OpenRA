@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -20,7 +21,7 @@ using OpenRA.Traits;
 namespace OpenRA
 {
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	public sealed class SyncAttribute : Attribute { }
+	public sealed class VerifySyncAttribute : Attribute { }
 
 	// Marker interface
 	public interface ISync { }
@@ -28,7 +29,7 @@ namespace OpenRA
 	public static class Sync
 	{
 		static readonly ConcurrentCache<Type, Func<object, int>> HashFunctions =
-			new ConcurrentCache<Type, Func<object, int>>(GenerateHashFunc);
+			new(GenerateHashFunc);
 
 		internal static Func<object, int> GetHashFunction(ISync sync)
 		{
@@ -40,7 +41,7 @@ namespace OpenRA
 			return GetHashFunction(sync)(sync);
 		}
 
-		static readonly Dictionary<Type, MethodInfo> CustomHashFunctions = new Dictionary<Type, MethodInfo>()
+		static readonly FrozenDictionary<Type, MethodInfo> CustomHashFunctions = new Dictionary<Type, MethodInfo>
 		{
 			{ typeof(int2), ((Func<int2, int>)HashInt2).Method },
 			{ typeof(CPos), ((Func<CPos, int>)HashCPos).Method },
@@ -53,12 +54,12 @@ namespace OpenRA
 			{ typeof(Actor), ((Func<Actor, int>)HashActor).Method },
 			{ typeof(Player), ((Func<Player, int>)HashPlayer).Method },
 			{ typeof(Target), ((Func<Target, int>)HashTarget).Method },
-		};
+		}.ToFrozenDictionary();
 
 		static void EmitSyncOpcodes(Type type, ILGenerator il)
 		{
-			if (CustomHashFunctions.ContainsKey(type))
-				il.EmitCall(OpCodes.Call, CustomHashFunctions[type], null);
+			if (CustomHashFunctions.TryGetValue(type, out var hashFunction))
+				il.EmitCall(OpCodes.Call, hashFunction, null);
 			else if (type == typeof(bool))
 			{
 				var l = il.DefineLabel();
@@ -69,14 +70,14 @@ namespace OpenRA
 				il.MarkLabel(l);
 			}
 			else if (type != typeof(int))
-				throw new NotImplementedException($"SyncAttribute on member of unhashable type: {type.FullName}");
+				throw new NotImplementedException($"{nameof(VerifySyncAttribute)} on member of unhashable type: {type.FullName}");
 
 			il.Emit(OpCodes.Xor);
 		}
 
 		static Func<object, int> GenerateHashFunc(Type t)
 		{
-			var d = new DynamicMethod($"hash_{t.Name}", typeof(int), new Type[] { typeof(object) }, t);
+			var d = new DynamicMethod($"hash_{t.Name}", typeof(int), [typeof(object)], t);
 			var il = d.GetILGenerator();
 			var this_ = il.DeclareLocal(t).LocalIndex;
 			il.Emit(OpCodes.Ldarg_0);
@@ -85,7 +86,7 @@ namespace OpenRA
 			il.Emit(OpCodes.Ldc_I4_0);
 
 			const BindingFlags Binding = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-			foreach (var field in t.GetFields(Binding).Where(x => x.HasAttribute<SyncAttribute>()))
+			foreach (var field in t.GetFields(Binding).Where(x => x.HasAttribute<VerifySyncAttribute>()))
 			{
 				il.Emit(OpCodes.Ldloc, this_);
 				il.Emit(OpCodes.Ldfld, field);
@@ -93,7 +94,7 @@ namespace OpenRA
 				EmitSyncOpcodes(field.FieldType, il);
 			}
 
-			foreach (var prop in t.GetProperties(Binding).Where(x => x.HasAttribute<SyncAttribute>()))
+			foreach (var prop in t.GetProperties(Binding).Where(x => x.HasAttribute<VerifySyncAttribute>()))
 			{
 				il.Emit(OpCodes.Ldloc, this_);
 				il.EmitCall(OpCodes.Call, prop.GetGetMethod(true), null);
@@ -112,7 +113,7 @@ namespace OpenRA
 
 		public static int HashCPos(CPos i2)
 		{
-			return ((i2.X * 5) ^ (i2.Y * 3)) / 4;
+			return i2.Bits;
 		}
 
 		public static int HashCVec(CVec i2)
@@ -142,16 +143,17 @@ namespace OpenRA
 					return (int)(t.Actor.ActorID << 16) * 0x567;
 
 				case TargetType.FrozenActor:
-					if (t.FrozenActor.Actor == null)
+					var actor = t.FrozenActor.Actor;
+					if (actor == null)
 						return 0;
 
-					return (int)(t.FrozenActor.Actor.ActorID << 16) * 0x567;
+					return (int)(actor.ActorID << 16) * 0x567;
 
 				case TargetType.Terrain:
 					return HashUsingHashCode(t.CenterPosition);
 
-				default:
 				case TargetType.Invalid:
+				default:
 					return 0;
 			}
 		}
@@ -161,37 +163,49 @@ namespace OpenRA
 			return t.GetHashCode();
 		}
 
+		public static void RunUnsynced(World world, Action fn)
+		{
+			RunUnsynced(Game.Settings.Debug.SyncCheckUnsyncedCode, world, () => { fn(); return true; });
+		}
+
 		public static void RunUnsynced(bool checkSyncHash, World world, Action fn)
 		{
 			RunUnsynced(checkSyncHash, world, () => { fn(); return true; });
 		}
 
-		static bool inUnsyncedCode = false;
+		static int unsyncCount = 0;
+
+		public static T RunUnsynced<T>(World world, Func<T> fn)
+		{
+			return RunUnsynced(Game.Settings.Debug.SyncCheckUnsyncedCode, world, fn);
+		}
 
 		public static T RunUnsynced<T>(bool checkSyncHash, World world, Func<T> fn)
 		{
-			if (world == null)
-				return fn();
+			unsyncCount++;
 
-			var sync = checkSyncHash ? world.SyncHash() : 0;
-			var prevInUnsyncedCode = inUnsyncedCode;
-			inUnsyncedCode = true;
+			// Detect sync changes in top level entry point only. Do not recalculate sync hash during reentry.
+			var sync = unsyncCount == 1 && checkSyncHash && world != null ? world.SyncHash() : 0;
 
+			// Running this inside a try with a finally statement means unsyncCount is decremented as soon as fn completes
 			try
 			{
 				return fn();
 			}
 			finally
 			{
-				inUnsyncedCode = prevInUnsyncedCode;
-				if (checkSyncHash && sync != world.SyncHash())
+				unsyncCount--;
+
+				// When the world is disposing all actors and effects have been removed
+				// So do not check the hash for a disposing world since it definitively has changed
+				if (unsyncCount == 0 && checkSyncHash && world != null && !world.Disposing && sync != world.SyncHash())
 					throw new InvalidOperationException("RunUnsynced: sync-changing code may not run here");
 			}
 		}
 
 		public static void AssertUnsynced(string message)
 		{
-			if (!inUnsyncedCode)
+			if (unsyncCount == 0)
 				throw new InvalidOperationException(message);
 		}
 	}

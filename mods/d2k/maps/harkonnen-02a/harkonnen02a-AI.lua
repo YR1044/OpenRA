@@ -1,5 +1,5 @@
 --[[
-   Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+   Copyright (c) The OpenRA Developers and Contributors
    This file is part of OpenRA, which is free software. It is made
    available to you under the terms of the GNU General Public License
    as published by the Free Software Foundation, either version 3 of
@@ -14,7 +14,7 @@ AttackGroupSize =
 	hard = 10
 }
 
-AttackDelays =
+ProductionDelays =
 {
 	easy = { DateTime.Seconds(4), DateTime.Seconds(9) },
 	normal = { DateTime.Seconds(2), DateTime.Seconds(7) },
@@ -24,11 +24,14 @@ AttackDelays =
 AtreidesInfantryTypes = { "light_inf" }
 
 ActivateAI = function()
-	IdlingUnits[atreides] = { }
-	local delay = function() return Utils.RandomInteger(AttackDelays[Difficulty][1], AttackDelays[Difficulty][2] + 1) end
+	Defending[Atreides] = {}
+	AttackDelay[Atreides] = 3000 * DifficultyModifier[Difficulty]
+	TimeBetweenAttacks[Atreides] = 3000 * DifficultyModifier[Difficulty]
+	IdlingUnits[Atreides] = { }
+	local delay = function() return Utils.RandomInteger(ProductionDelays[Difficulty][1], ProductionDelays[Difficulty][2] + 1) end
 	local toBuild = function() return AtreidesInfantryTypes end
-	local attackThresholdSize = AttackGroupSize[Difficulty] * 2.5
+	attackThresholdSize = AttackGroupSize[Difficulty] * 2.5
 
-	DefendAndRepairBase(atreides, AtreidesBase, 0.75, AttackGroupSize[Difficulty])
-	ProduceUnits(atreides, ABarracks, delay, toBuild, AttackGroupSize[Difficulty], attackThresholdSize)
+	DefendAndRepairBase(Atreides, AtreidesBase, 0.75, AttackGroupSize[Difficulty])
+	ProduceUnits(Atreides, ABarracks, delay, toBuild, AttackGroupSize[Difficulty], attackThresholdSize)
 end

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
+using OpenRA.FileSystem;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 
@@ -26,10 +27,10 @@ namespace OpenRA.Mods.Common.LoadScreens
 		Sheet sheet;
 		int density;
 
-		public override void Init(ModData modData, Dictionary<string, string> info)
+		public override void Init(Manifest manifest, IReadOnlyFileSystem fileSystem)
 		{
-			base.Init(modData, info);
-			Info = info;
+			base.Init(manifest, fileSystem);
+			Info = manifest.LoadScreen.ToDictionary(my => my.Value);
 		}
 
 		public abstract void DisplayInner(Renderer r, Sheet s, int density);
@@ -41,8 +42,7 @@ namespace OpenRA.Mods.Common.LoadScreens
 				return;
 
 			// Start the timer on the first render
-			if (lastUpdate == null)
-				lastUpdate = Stopwatch.StartNew();
+			lastUpdate ??= Stopwatch.StartNew();
 
 			// Check for window DPI changes
 			// We can't trust notifications to be working during initialization, so must do this manually
@@ -57,22 +57,21 @@ namespace OpenRA.Mods.Common.LoadScreens
 				sheet = null;
 			}
 
-			if (sheet == null && Info.ContainsKey("Image"))
+			if (sheet == null && Info.TryGetValue("Image", out var image))
 			{
-				var key = "Image";
 				density = 1;
-				if (dpiScale > 2 && Info.ContainsKey("Image3x"))
+				if (dpiScale > 2 && Info.TryGetValue("Image3x", out var image3))
 				{
-					key = "Image3x";
+					image = image3;
 					density = 3;
 				}
-				else if (dpiScale > 1 && Info.ContainsKey("Image2x"))
+				else if (dpiScale > 1 && Info.TryGetValue("Image2x", out var image2))
 				{
-					key = "Image2x";
+					image = image2;
 					density = 2;
 				}
 
-				using (var stream = ModData.DefaultFileSystem.Open(Platform.ResolvePath(Info[key])))
+				using (var stream = fileSystem.Open(Platform.ResolvePath(image)))
 				{
 					sheet = new Sheet(SheetType.BGRA, stream);
 					sheet.GetTexture().ScaleFilter = TextureScaleFilter.Linear;

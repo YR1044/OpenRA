@@ -1,17 +1,17 @@
 --[[
-   Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+   Copyright (c) The OpenRA Developers and Contributors
    This file is part of OpenRA, which is free software. It is made
    available to you under the terms of the GNU General Public License
    as published by the Free Software Foundation, either version 3 of
    the License, or (at your option) any later version. For more
    information, see COPYING.
 ]]
-if Map.LobbyOption("difficulty") == "easy" then
+if Difficulty == "easy" then
 	TanyaType = "e7"
 	ReinforceCash = 5000
 	HoldAITime = DateTime.Minutes(3)
 	SpecialCameras = true
-elseif Map.LobbyOption("difficulty") == "normal" then
+elseif Difficulty == "normal" then
 	TanyaType = "e7.noautotarget"
 	ReinforceCash = 3500
 	HoldAITime = DateTime.Minutes(2)
@@ -52,7 +52,8 @@ DogPatrolPath = { DogPatrolRally1.Location, SpyCamera2.Location, DogPatrolRally3
 RiflePath = { RiflePath1.Location, RiflePath2.Location, RiflePath3.Location }
 BasePatrolPath = { BasePatrolPath1.Location, BasePatrolPath2.Location, BasePatrolPath3.Location }
 
-TanyaVoices = { "tuffguy", "bombit", "laugh", "gotit", "lefty", "keepem" }
+TanyaVoices = { "tuffguy", "bombit", "laugh", "keepem" }
+DeathVoices = { "death1", "death2", "death3" }
 SpyVoice = "sking"
 
 SamSites = { Sam1, Sam2, Sam3, Sam4, Sam5, Sam6 }
@@ -72,7 +73,7 @@ SendSpy = function()
 	end
 
 	Trigger.AfterDelay(DateTime.Seconds(3), function()
-		Media.DisplayMessage("Commander! You have to disguise me in order to get through the enemy patrols.", "Spy")
+		Media.DisplayMessage(UserInterface.GetFluentMessage("disguise-spy"), UserInterface.GetFluentMessage("spy"))
 	end)
 end
 
@@ -165,14 +166,28 @@ WarfactoryInfiltrated = function()
 end
 
 MissInfiltrated = function()
-	for i = 0, 5, 1 do
-		local sound = Utils.Random(TanyaVoices)
-		Trigger.AfterDelay(DateTime.Seconds(i), function()
-			Media.PlaySoundNotification(Greece, sound)
+	local taunts = Utils.Shuffle(TanyaVoices)
+	local deathVoices = Utils.Shuffle(DeathVoices)
+	local deaths =
+	{
+		[2] = deathVoices[1],
+		[4] = deathVoices[2]
+	}
+
+	for i = 1, 4, 1 do
+		local taunt = taunts[i]
+		local death = deaths[i]
+
+		Trigger.AfterDelay(i * 30, function()
+			Media.PlaySpeechNotification(Greece, taunt)
+
+			if death then
+				Media.PlaySpeechNotification(Greece, death)
+			end
 		end)
 	end
-	Prison.Attack(Prison)
 
+	Prison.Attack(Prison)
 	Trigger.AfterDelay(DateTime.Seconds(6), FreeTanya)
 end
 
@@ -184,20 +199,20 @@ FreeTanya = function()
 
 	if TanyaType == "e7.noautotarget" then
 		Trigger.AfterDelay(DateTime.Seconds(1), function()
-			Media.DisplayMessage("According to the rules of engagement I need your explicit orders to fire, Commander!", "Tanya")
+			Media.DisplayMessage(UserInterface.GetFluentMessage("tanya-rules-of-engagement"), UserInterface.GetFluentMessage("tanya"))
 		end)
 	end
 
 	Trigger.OnKilled(Tanya, function() USSR.MarkCompletedObjective(USSRObj) end)
 
-	if Map.LobbyOption("difficulty") == "tough" then
-		KillSams = Greece.AddObjective("Destroy all six SAM Sites that block\nour reinforcements' helicopter.")
+	if Difficulty == "tough" then
+		KillSams = AddPrimaryObjective(Greece, "destroy-sam-sites-blocker")
 
 		Greece.MarkCompletedObjective(MainObj)
-		SurviveObj = Greece.AddObjective("Tanya must not die!")
+		SurviveObj = AddPrimaryObjective(Greece, "tanya-survive")
 		Media.PlaySpeechNotification(Greece, "TanyaRescued")
 	else
-		KillSams = Greece.AddObjective("Destroy all six SAM sites that block\nthe extraction helicopter.")
+		KillSams = AddPrimaryObjective(Greece, "destroy-sam-sites-blocker")
 
 		Media.PlaySpeechNotification(Greece, "TargetFreed")
 	end
@@ -238,7 +253,7 @@ InitTriggers = function()
 		end
 
 		if not Greece.IsObjectiveCompleted(InfWarfactory) then
-			Media.DisplayMessage("Good work! But next time skip the heroics!", "Battlefield Control")
+			Media.DisplayMessage(UserInterface.GetFluentMessage("skip-heroics"), UserInterface.GetFluentMessage("battlefield-control"))
 			Greece.MarkCompletedObjective(InfWarfactory)
 		end
 
@@ -267,7 +282,7 @@ InitTriggers = function()
 			Spy.DisguiseAsType("e1", USSR)
 			Spy.Move(SpyWaypoint.Location)
 			Spy.Infiltrate(Prison)
-			Media.PlaySoundNotification(Greece, SpyVoice)
+			Media.PlaySpeechNotification(Greece, SpyVoice)
 
 			FollowTruk = false
 
@@ -324,7 +339,7 @@ Tick = function()
 	end
 
 	if USSR.HasNoRequiredUnits() then
-		if not Greece.IsObjectiveCompleted(KillAll) and Map.LobbyOption("difficulty") == "tough" then
+		if not Greece.IsObjectiveCompleted(KillAll) and Difficulty == "tough" then
 			SendWaterExtraction()
 		end
 		Greece.MarkCompletedObjective(KillAll)
@@ -344,28 +359,12 @@ WorldLoaded = function()
 	Greece = Player.GetPlayer("Greece")
 	USSR = Player.GetPlayer("USSR")
 
-	Trigger.OnObjectiveAdded(Greece, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "New " .. string.lower(p.GetObjectiveType(id)) .. " objective")
-	end)
+	InitObjectives(Greece)
 
-	USSRObj = USSR.AddObjective("Deny the Allies.")
-	MainObj = Greece.AddObjective("Rescue Tanya.")
-	KillAll = Greece.AddObjective("Eliminate all Soviet units in this area.")
-	InfWarfactory = Greece.AddObjective("Infiltrate the Soviet warfactory.", "Secondary", false)
-
-	Trigger.OnObjectiveCompleted(Greece, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective completed")
-	end)
-	Trigger.OnObjectiveFailed(Greece, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective failed")
-	end)
-
-	Trigger.OnPlayerLost(Greece, function()
-		Media.PlaySpeechNotification(Greece, "Lose")
-	end)
-	Trigger.OnPlayerWon(Greece, function()
-		Media.PlaySpeechNotification(Greece, "Win")
-	end)
+	USSRObj = AddPrimaryObjective(USSR, "")
+	MainObj = AddPrimaryObjective(Greece, "rescue-tanya")
+	KillAll = AddPrimaryObjective(Greece, "eliminate-soviet-units")
+	InfWarfactory = AddSecondaryObjective(Greece, "infiltrate-warfactory")
 
 	InitTriggers()
 	SendSpy()

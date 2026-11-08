@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System.Collections.Immutable;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
@@ -23,11 +24,16 @@ namespace OpenRA.Mods.Common.Traits
 			"If null, the engine will guess an appropriate size based on the With*Body trait.",
 			"The first two numbers define the width and height of the rectangle as a world distance.",
 			"The (optional) second two numbers define an x and y offset from the actor center.")]
-		public readonly WDist[] Bounds = null;
+		public readonly ImmutableArray<WDist> Bounds = default;
 
 		[Desc("Defines a custom rectangle for Decorations (e.g. the selection box).",
 			"If null, Bounds will be used instead")]
-		public readonly WDist[] DecorationBounds = null;
+		public readonly ImmutableArray<WDist> DecorationBounds = default;
+
+		[Desc("Defines a custom 2D polygon for mouse interaction with the actor.",
+			"If null, Bounds will be used instead",
+			"Each vertex has two components (so two numbers), which define an x and y offset from the actor center.")]
+		public readonly ImmutableArray<int2> Polygon = default;
 
 		public override object Create(ActorInitializer init) { return new Interactable(this); }
 	}
@@ -35,11 +41,20 @@ namespace OpenRA.Mods.Common.Traits
 	public class Interactable : INotifyCreated, IMouseBounds
 	{
 		readonly InteractableInfo info;
+		readonly int2 polygonCenterOffset;
 		IAutoMouseBounds[] autoBounds;
 
 		public Interactable(InteractableInfo info)
 		{
 			this.info = info;
+
+			if (info.Polygon != null)
+			{
+				var rect = new Polygon(info.Polygon).BoundingRect;
+
+				// Precalculate offset for centering the polygon over the actor
+				polygonCenterOffset = new int2(-rect.Width / 2, -rect.Height / 2);
+			}
 		}
 
 		void INotifyCreated.Created(Actor self)
@@ -52,7 +67,22 @@ namespace OpenRA.Mods.Common.Traits
 			return autoBounds.Select(s => s.AutoMouseoverBounds(self, wr)).FirstOrDefault(r => !r.IsEmpty);
 		}
 
-		Polygon Bounds(Actor self, WorldRenderer wr, WDist[] bounds)
+		ImmutableArray<int2> PolygonBounds(Actor self, WorldRenderer wr)
+		{
+			var screenVertices = new int2[info.Polygon.Length];
+
+			for (var i = 0; i < info.Polygon.Length; i++)
+			{
+				var vec = info.Polygon[i] + polygonCenterOffset;
+				var offset = new int2(vec.X * wr.TileSize.Width / wr.TileScale, vec.Y * wr.TileSize.Height / wr.TileScale);
+
+				screenVertices[i] = wr.ScreenPxPosition(self.CenterPosition) + offset;
+			}
+
+			return screenVertices.ToImmutableArray();
+		}
+
+		Polygon Bounds(Actor self, WorldRenderer wr, ImmutableArray<WDist> bounds)
 		{
 			if (bounds == null)
 				return new Polygon(AutoBounds(self, wr));
@@ -70,12 +100,15 @@ namespace OpenRA.Mods.Common.Traits
 
 		Polygon IMouseBounds.MouseoverBounds(Actor self, WorldRenderer wr)
 		{
+			if (info.Polygon != null)
+				return new Polygon(PolygonBounds(self, wr));
+
 			return Bounds(self, wr, info.Bounds);
 		}
 
 		public Rectangle DecorationBounds(Actor self, WorldRenderer wr)
 		{
-			return Bounds(self, wr, info.DecorationBounds ?? info.Bounds).BoundingRect;
+			return Bounds(self, wr, info.DecorationBounds != null ? info.DecorationBounds : info.Bounds).BoundingRect;
 		}
 	}
 }

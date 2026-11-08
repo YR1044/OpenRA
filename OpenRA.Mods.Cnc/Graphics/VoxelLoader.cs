@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using OpenRA.FileSystem;
 using OpenRA.Graphics;
 using OpenRA.Mods.Cnc.FileFormats;
@@ -21,43 +22,45 @@ namespace OpenRA.Mods.Cnc.Graphics
 {
 	public sealed class VoxelLoader : IDisposable
 	{
-		static readonly float[] ChannelSelect = { 0.75f, 0.25f, -0.25f, -0.75f };
+		static readonly float[] ChannelSelect = [0.75f, 0.25f, -0.25f, -0.75f];
 
-		readonly List<Vertex[]> vertices = new List<Vertex[]>();
+		readonly List<ModelVertex[]> vertices = [];
 		readonly Cache<(string, string), Voxel> voxels;
 		readonly IReadOnlyFileSystem fileSystem;
-		IVertexBuffer<Vertex> vertexBuffer;
+		readonly int sheetSize;
+		IVertexBuffer<ModelVertex> vertexBuffer;
 		int totalVertexCount;
 		int cachedVertexCount;
 
 		SheetBuilder sheetBuilder;
 
-		static SheetBuilder CreateSheetBuilder()
+		SheetBuilder CreateSheetBuilder()
 		{
 			var allocated = false;
-			Func<Sheet> allocate = () =>
+			Sheet Allocate()
 			{
 				if (allocated)
 					throw new SheetOverflowException("");
 				allocated = true;
-				return SheetBuilder.AllocateSheet(SheetType.Indexed, Game.Settings.Graphics.SheetSize);
-			};
+				return SheetBuilder.AllocateSheet(SheetType.Indexed, sheetSize);
+			}
 
-			return new SheetBuilder(SheetType.Indexed, allocate);
+			return new SheetBuilder(SheetType.Indexed, Allocate);
 		}
 
-		public VoxelLoader(IReadOnlyFileSystem fileSystem)
+		public VoxelLoader(IReadOnlyFileSystem fileSystem, int sheetSize)
 		{
 			this.fileSystem = fileSystem;
+			this.sheetSize = sheetSize;
 			voxels = new Cache<(string, string), Voxel>(LoadFile);
-			vertices = new List<Vertex[]>();
+			vertices = [];
 			totalVertexCount = 0;
 			cachedVertexCount = 0;
 
 			sheetBuilder = CreateSheetBuilder();
 		}
 
-		Vertex[] GenerateSlicePlane(int su, int sv, Func<int, int, VxlElement> first, Func<int, int, VxlElement> second, Func<int, int, float3> coord)
+		ModelVertex[] GenerateSlicePlane(int su, int sv, Func<int, int, VxlElement?> first, Func<int, int, VxlElement?> second, Func<int, int, Vector3> coord)
 		{
 			var colors = new byte[su * sv];
 			var normals = new byte[su * sv];
@@ -68,8 +71,8 @@ namespace OpenRA.Mods.Cnc.Graphics
 				for (var u = 0; u < su; u++)
 				{
 					var voxel = first(u, v) ?? second(u, v);
-					colors[c] = voxel == null ? (byte)0 : voxel.Color;
-					normals[c] = voxel == null ? (byte)0 : voxel.Normal;
+					colors[c] = voxel == null ? (byte)0 : voxel.Value.Color;
+					normals[c] = voxel == null ? (byte)0 : voxel.Value.Normal;
 					c++;
 				}
 			}
@@ -82,24 +85,24 @@ namespace OpenRA.Mods.Cnc.Graphics
 
 			// s and t are guaranteed to use the same sheet because
 			// of the custom voxel sheet allocation implementation
-			s.Sheet.CommitBufferedData();
+			s.Sheet.CommitBufferedData(s.Bounds);
 
 			var channelP = ChannelSelect[(int)s.Channel];
 			var channelC = ChannelSelect[(int)t.Channel];
-			return new Vertex[6]
-			{
-				new Vertex(coord(0, 0), s.Left, s.Top, t.Left, t.Top, channelP, channelC),
-				new Vertex(coord(su, 0), s.Right, s.Top, t.Right, t.Top, channelP, channelC),
-				new Vertex(coord(su, sv), s.Right, s.Bottom, t.Right, t.Bottom, channelP, channelC),
-				new Vertex(coord(su, sv), s.Right, s.Bottom, t.Right, t.Bottom, channelP, channelC),
-				new Vertex(coord(0, sv), s.Left, s.Bottom, t.Left, t.Bottom, channelP, channelC),
-				new Vertex(coord(0, 0), s.Left, s.Top, t.Left, t.Top, channelP, channelC)
-			};
+			return
+			[
+				new(coord(0, 0), s.Left, s.Top, t.Left, t.Top, channelP, channelC),
+				new(coord(su, 0), s.Right, s.Top, t.Right, t.Top, channelP, channelC),
+				new(coord(su, sv), s.Right, s.Bottom, t.Right, t.Bottom, channelP, channelC),
+				new(coord(su, sv), s.Right, s.Bottom, t.Right, t.Bottom, channelP, channelC),
+				new(coord(0, sv), s.Left, s.Bottom, t.Left, t.Bottom, channelP, channelC),
+				new(coord(0, 0), s.Left, s.Top, t.Left, t.Top, channelP, channelC)
+			];
 		}
 
-		IEnumerable<Vertex[]> GenerateSlicePlanes(VxlLimb l)
+		IEnumerable<ModelVertex[]> GenerateSlicePlanes(VxlLimb l)
 		{
-			Func<int, int, int, VxlElement> get = (x, y, z) =>
+			VxlElement? Get(int x, int y, int z)
 			{
 				if (x < 0 || y < 0 || z < 0)
 					return null;
@@ -108,11 +111,11 @@ namespace OpenRA.Mods.Cnc.Graphics
 					return null;
 
 				var v = l.VoxelMap[(byte)x, (byte)y];
-				if (v == null || !v.ContainsKey((byte)z))
+				if (v == null || !v.TryGetValue((byte)z, out var element))
 					return null;
 
-				return l.VoxelMap[(byte)x, (byte)y][(byte)z];
-			};
+				return element;
+			}
 
 			// Cull slices without any visible faces
 			var xPlanes = new bool[l.Size[0] + 1];
@@ -124,23 +127,23 @@ namespace OpenRA.Mods.Cnc.Graphics
 				{
 					for (var z = 0; z < l.Size[2]; z++)
 					{
-						if (get(x, y, z) == null)
+						if (Get(x, y, z) == null)
 							continue;
 
 						// Only generate a plane if it is actually visible
-						if (!xPlanes[x] && get(x - 1, y, z) == null)
+						if (!xPlanes[x] && Get(x - 1, y, z) == null)
 							xPlanes[x] = true;
-						if (!xPlanes[x + 1] && get(x + 1, y, z) == null)
+						if (!xPlanes[x + 1] && Get(x + 1, y, z) == null)
 							xPlanes[x + 1] = true;
 
-						if (!yPlanes[y] && get(x, y - 1, z) == null)
+						if (!yPlanes[y] && Get(x, y - 1, z) == null)
 							yPlanes[y] = true;
-						if (!yPlanes[y + 1] && get(x, y + 1, z) == null)
+						if (!yPlanes[y + 1] && Get(x, y + 1, z) == null)
 							yPlanes[y + 1] = true;
 
-						if (!zPlanes[z] && get(x, y, z - 1) == null)
+						if (!zPlanes[z] && Get(x, y, z - 1) == null)
 							zPlanes[z] = true;
-						if (!zPlanes[z + 1] && get(x, y, z + 1) == null)
+						if (!zPlanes[z + 1] && Get(x, y, z + 1) == null)
 							zPlanes[z + 1] = true;
 					}
 				}
@@ -149,28 +152,28 @@ namespace OpenRA.Mods.Cnc.Graphics
 			for (var x = 0; x <= l.Size[0]; x++)
 				if (xPlanes[x])
 					yield return GenerateSlicePlane(l.Size[1], l.Size[2],
-						(u, v) => get(x, u, v),
-						(u, v) => get(x - 1, u, v),
-						(u, v) => new float3(x, u, v));
+						(u, v) => Get(x, u, v),
+						(u, v) => Get(x - 1, u, v),
+						(u, v) => new Vector3(x, u, v));
 
 			for (var y = 0; y <= l.Size[1]; y++)
 				if (yPlanes[y])
 					yield return GenerateSlicePlane(l.Size[0], l.Size[2],
-						(u, v) => get(u, y, v),
-						(u, v) => get(u, y - 1, v),
-						(u, v) => new float3(u, y, v));
+						(u, v) => Get(u, y, v),
+						(u, v) => Get(u, y - 1, v),
+						(u, v) => new Vector3(u, y, v));
 
 			for (var z = 0; z <= l.Size[2]; z++)
 				if (zPlanes[z])
 					yield return GenerateSlicePlane(l.Size[0], l.Size[1],
-						(u, v) => get(u, v, z),
-						(u, v) => get(u, v, z - 1),
-						(u, v) => new float3(u, v, z));
+						(u, v) => Get(u, v, z),
+						(u, v) => Get(u, v, z - 1),
+						(u, v) => new Vector3(u, v, z));
 		}
 
 		public ModelRenderData GenerateRenderData(VxlLimb l)
 		{
-			Vertex[] v;
+			ModelVertex[] v;
 			try
 			{
 				v = GenerateSlicePlanes(l).SelectMany(x => x).ToArray();
@@ -195,12 +198,11 @@ namespace OpenRA.Mods.Cnc.Graphics
 		public void RefreshBuffer()
 		{
 			vertexBuffer?.Dispose();
-			vertexBuffer = Game.Renderer.CreateVertexBuffer(totalVertexCount);
-			vertexBuffer.SetData(vertices.SelectMany(v => v).ToArray(), totalVertexCount);
+			vertexBuffer = Game.Renderer.CreateVertexBuffer(vertices.SelectMany(v => v).ToArray(), false);
 			cachedVertexCount = totalVertexCount;
 		}
 
-		public IVertexBuffer<Vertex> VertexBuffer
+		public IVertexBuffer<ModelVertex> VertexBuffer
 		{
 			get
 			{
@@ -229,7 +231,7 @@ namespace OpenRA.Mods.Cnc.Graphics
 
 		public void Finish()
 		{
-			sheetBuilder.Current.ReleaseBuffer();
+			sheetBuilder.Current?.ReleaseBuffer();
 		}
 
 		public void Dispose()

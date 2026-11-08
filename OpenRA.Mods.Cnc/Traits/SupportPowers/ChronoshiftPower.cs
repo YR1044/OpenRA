@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Orders;
 using OpenRA.Mods.Common.Traits;
@@ -19,7 +20,7 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Cnc.Traits
 {
-	class ChronoshiftPowerInfo : SupportPowerInfo
+	sealed class ChronoshiftPowerInfo : SupportPowerInfo
 	{
 		[FieldLoader.Require]
 		[Desc("Size of the footprint of the affected area.")]
@@ -63,7 +64,7 @@ namespace OpenRA.Mods.Cnc.Traits
 		public override object Create(ActorInitializer init) { return new ChronoshiftPower(init.Self, this); }
 	}
 
-	class ChronoshiftPower : SupportPower
+	sealed class ChronoshiftPower : SupportPower
 	{
 		readonly char[] footprint;
 		readonly CVec dimensions;
@@ -90,7 +91,7 @@ namespace OpenRA.Mods.Cnc.Traits
 			foreach (var target in UnitsInRange(order.ExtraLocation))
 			{
 				var cs = target.TraitsImplementing<Chronoshiftable>()
-					.FirstEnabledTraitOrDefault();
+					.FirstEnabledConditionalTraitOrDefault();
 
 				if (cs == null)
 					continue;
@@ -140,7 +141,7 @@ namespace OpenRA.Mods.Cnc.Traits
 			return true;
 		}
 
-		class SelectChronoshiftTarget : OrderGenerator
+		sealed class SelectChronoshiftTarget : OrderGenerator
 		{
 			readonly ChronoshiftPower power;
 			readonly char[] footprint;
@@ -150,18 +151,17 @@ namespace OpenRA.Mods.Cnc.Traits
 			readonly SupportPowerManager manager;
 			readonly string order;
 
-			public SelectChronoshiftTarget(World world, string order, SupportPowerManager manager, ChronoshiftPower power)
-			{
-				// Clear selection if using Left-Click Orders
-				if (Game.Settings.Game.UseClassicMouseStyle)
-					manager.Self.World.Selection.Clear();
+			protected override MouseActionType ActionType => MouseActionType.SupportPower;
 
+			public SelectChronoshiftTarget(World world, string order, SupportPowerManager manager, ChronoshiftPower power)
+				: base(world)
+			{
 				this.manager = manager;
 				this.order = order;
 				this.power = power;
 
 				var info = (ChronoshiftPowerInfo)power.Info;
-				var s = world.Map.Rules.Sequences.GetSequence(info.FootprintImage, info.SourceFootprintSequence);
+				var s = world.Map.Sequences.GetSequence(info.FootprintImage, info.SourceFootprintSequence);
 				footprint = info.Footprint.Where(c => !char.IsWhiteSpace(c)).ToArray();
 				dimensions = info.Dimensions;
 				tile = s.GetSprite(0);
@@ -171,9 +171,7 @@ namespace OpenRA.Mods.Cnc.Traits
 			protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 			{
 				world.CancelInputMode();
-				if (mi.Button == MouseButton.Left)
-					world.OrderGenerator = new SelectDestination(world, order, manager, power, cell);
-
+				world.OrderGenerator = new SelectDestination(world, order, manager, power, cell);
 				yield break;
 			}
 
@@ -209,7 +207,8 @@ namespace OpenRA.Mods.Cnc.Traits
 				var tiles = power.CellsMatching(xy, footprint, dimensions);
 				var palette = wr.Palette(((ChronoshiftPowerInfo)power.Info).TargetOverlayPalette);
 				foreach (var t in tiles)
-					yield return new SpriteRenderable(tile, wr.World.Map.CenterOfCell(t), WVec.Zero, -511, palette, 1f, alpha, float3.Ones, TintModifiers.IgnoreWorldTint, true);
+					yield return new SpriteRenderable(
+						tile, wr.World.Map.CenterOfCell(t), WVec.Zero, -511, palette, 1f, alpha, Vector3.One, TintModifiers.IgnoreWorldTint, true);
 			}
 
 			protected override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
@@ -218,7 +217,7 @@ namespace OpenRA.Mods.Cnc.Traits
 			}
 		}
 
-		class SelectDestination : OrderGenerator
+		sealed class SelectDestination : OrderGenerator
 		{
 			readonly ChronoshiftPower power;
 			readonly CPos sourceLocation;
@@ -229,7 +228,10 @@ namespace OpenRA.Mods.Cnc.Traits
 			readonly SupportPowerManager manager;
 			readonly string order;
 
+			protected override MouseActionType ActionType => MouseActionType.SupportPower;
+
 			public SelectDestination(World world, string order, SupportPowerManager manager, ChronoshiftPower power, CPos sourceLocation)
+				: base(world)
 			{
 				this.manager = manager;
 				this.order = order;
@@ -240,7 +242,7 @@ namespace OpenRA.Mods.Cnc.Traits
 				footprint = info.Footprint.Where(c => !char.IsWhiteSpace(c)).ToArray();
 				dimensions = info.Dimensions;
 
-				var sequences = world.Map.Rules.Sequences;
+				var sequences = world.Map.Sequences;
 				var tilesetValid = info.ValidFootprintSequence + "-" + world.Map.Tileset.ToLowerInvariant();
 				if (sequences.HasSequence(info.FootprintImage, tilesetValid))
 				{
@@ -266,12 +268,6 @@ namespace OpenRA.Mods.Cnc.Traits
 
 			protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 			{
-				if (mi.Button == MouseButton.Right)
-				{
-					world.CancelInputMode();
-					yield break;
-				}
-
 				var ret = OrderInner(cell).FirstOrDefault();
 				if (ret == null)
 					yield break;
@@ -310,7 +306,8 @@ namespace OpenRA.Mods.Cnc.Traits
 					var isValid = manager.Self.Owner.Shroud.IsExplored(t + delta);
 					var tile = isValid ? validTile : invalidTile;
 					var alpha = isValid ? validAlpha : invalidAlpha;
-					yield return new SpriteRenderable(tile, wr.World.Map.CenterOfCell(t + delta), WVec.Zero, -511, palette, 1f, alpha, float3.Ones, TintModifiers.IgnoreWorldTint, true);
+					yield return new SpriteRenderable(
+						tile, wr.World.Map.CenterOfCell(t + delta), WVec.Zero, -511, palette, 1f, alpha, Vector3.One, TintModifiers.IgnoreWorldTint, true);
 				}
 
 				// Unit previews
@@ -323,7 +320,8 @@ namespace OpenRA.Mods.Cnc.Traits
 							unit.Trait<Chronoshiftable>().CanChronoshiftTo(unit, targetCell);
 						var tile = canEnter ? validTile : invalidTile;
 						var alpha = canEnter ? validAlpha : invalidAlpha;
-						yield return new SpriteRenderable(tile, wr.World.Map.CenterOfCell(targetCell), WVec.Zero, -511, palette, 1f, alpha, float3.Ones, TintModifiers.IgnoreWorldTint, true);
+						yield return new SpriteRenderable(
+							tile, wr.World.Map.CenterOfCell(targetCell), WVec.Zero, -511, palette, 1f, alpha, Vector3.One, TintModifiers.IgnoreWorldTint, true);
 					}
 
 					var offset = world.Map.CenterOfCell(xy) - world.Map.CenterOfCell(sourceLocation);
@@ -353,19 +351,17 @@ namespace OpenRA.Mods.Cnc.Traits
 
 				// Source tiles
 				foreach (var t in power.CellsMatching(sourceLocation, footprint, dimensions))
-					yield return new SpriteRenderable(sourceTile, wr.World.Map.CenterOfCell(t), WVec.Zero, -511, palette, 1f, sourceAlpha, float3.Ones, TintModifiers.IgnoreWorldTint, true);
+					yield return new SpriteRenderable(
+						sourceTile, wr.World.Map.CenterOfCell(t), WVec.Zero, -511, palette, 1f, sourceAlpha, Vector3.One, TintModifiers.IgnoreWorldTint, true);
 			}
 
 			bool IsValidTarget(CPos xy)
 			{
-				// Don't teleport if there are no units in range (either all moved out of range, or none yet moved into range)
-				var unitsInRange = power.UnitsInRange(sourceLocation);
-				if (!unitsInRange.Any())
-					return false;
-
 				var canTeleport = false;
-				foreach (var unit in unitsInRange)
+				var anyUnitsInRange = false;
+				foreach (var unit in power.UnitsInRange(sourceLocation))
 				{
+					anyUnitsInRange = true;
 					var targetCell = unit.Location + (xy - sourceLocation);
 					if (manager.Self.Owner.Shroud.IsExplored(targetCell) && unit.Trait<Chronoshiftable>().CanChronoshiftTo(unit, targetCell))
 					{
@@ -373,6 +369,10 @@ namespace OpenRA.Mods.Cnc.Traits
 						break;
 					}
 				}
+
+				// Don't teleport if there are no units in range (either all moved out of range, or none yet moved into range)
+				if (!anyUnitsInRange)
+					return false;
 
 				if (!canTeleport)
 				{

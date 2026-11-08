@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,17 +10,23 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using OpenRA.Primitives;
-using OpenRA.Traits;
 
 namespace OpenRA
 {
+	public enum MouseControlStyle { Classic, Modern, OtherRTS }
 	public enum MouseScrollType { Disabled, Standard, Inverted, Joystick }
 	public enum StatusBarsType { Standard, DamageShow, AlwaysShow }
 	public enum TargetLinesType { Disabled, Manual, Automatic }
+
+	public enum MouseActionType { Contextual, ConfirmOrder, GlobalCommand, SupportPower, PlaceBuilding }
 
 	[Flags]
 	public enum MPGameFilters
@@ -37,21 +43,65 @@ namespace OpenRA
 	public enum TextNotificationPoolFilters
 	{
 		None = 0,
-		Feedback = 1
+		Feedback = 1,
+		Transients = 2
 	}
 
 	public enum WorldViewport { Native, Close, Medium, Far }
 
-	public class ServerSettings
+	public abstract class SettingsModule
+	{
+		[AttributeUsage(AttributeTargets.Class)]
+		public sealed class YamlNodeAttribute(string key, bool shared = true) : Attribute
+		{
+			public readonly string Key = key;
+			public readonly bool Shared = shared;
+		}
+
+		[FieldLoader.Ignore]
+		internal string ModInstance;
+
+		[FieldLoader.Ignore]
+		public readonly MiniYamlBuilder Yaml;
+
+		internal void Commit()
+		{
+			var defaultValues = Activator.CreateInstance(GetType());
+			var fields = FieldLoader.GetTypeLoadInfo(GetType());
+			foreach (var fli in fields)
+			{
+				var serialized = FieldSaver.FormatValue(this, fli.Field);
+				var defaultSerialized = FieldSaver.FormatValue(defaultValues, fli.Field);
+
+				// Fields with their default value are not saved in the settings yaml
+				// Make sure that we erase any previously defined custom values
+				Yaml.Nodes.RemoveAll(n => n.Key == fli.YamlName);
+				if (serialized != defaultSerialized)
+					Yaml.Nodes.Add(new MiniYamlNodeBuilder(fli.YamlName, new MiniYamlBuilder(serialized)));
+			}
+		}
+
+		public void Save()
+		{
+			Commit();
+			Game.Settings.Save(false);
+		}
+	}
+
+	[YamlNode("Server", shared: true)]
+	public class ServerSettings : SettingsModule
 	{
 		[Desc("Sets the server name.")]
-		public string Name = "OpenRA Game";
+		public string Name = "";
 
 		[Desc("Sets the internal port.")]
 		public int ListenPort = 1234;
 
 		[Desc("Reports the game to the master server list.")]
 		public bool AdvertiseOnline = true;
+
+		[Desc("Reports the game on the local area network.")]
+		public bool AdvertiseOnLocalNetwork = true;
 
 		[Desc("Locks the game with a password.")]
 		public string Password = "";
@@ -66,19 +116,22 @@ namespace OpenRA
 		public string Map = null;
 
 		[Desc("Takes a comma separated list of IP addresses that are not allowed to join.")]
-		public string[] Ban = { };
+		public FrozenSet<string> Ban = [];
 
 		[Desc("For dedicated servers only, allow anonymous clients to join.")]
 		public bool RequireAuthentication = false;
 
 		[Desc("For dedicated servers only, if non-empty, only allow authenticated players with these profile IDs to join.")]
-		public int[] ProfileIDWhitelist = { };
+		public FrozenSet<int> ProfileIDWhitelist = [];
 
 		[Desc("For dedicated servers only, if non-empty, always reject players with these user IDs from joining.")]
-		public int[] ProfileIDBlacklist = { };
+		public FrozenSet<int> ProfileIDBlacklist = [];
 
 		[Desc("For dedicated servers only, controls whether a game can be started with just one human player in the lobby.")]
 		public bool EnableSingleplayer = false;
+
+		[Desc("Controls whether generated maps can be used.")]
+		public bool EnableMapGeneration = true;
 
 		[Desc("Query map information from the Resource Center if they are not available locally.")]
 		public bool QueryMapRepository = true;
@@ -101,13 +154,38 @@ namespace OpenRA
 		[Desc("For dedicated servers only, treat maps that fail the lint checks as invalid.")]
 		public bool EnableLintChecks = true;
 
+		[Desc("For dedicated servers only, a comma separated list of map uids that are allowed to be used.")]
+		public FrozenSet<string> MapPool = [];
+
+		[Desc("Delay in milliseconds before newly joined players can send chat messages.")]
+		public int FloodLimitJoinCooldown = 5000;
+
+		[Desc("Amount of milliseconds player chat messages are tracked for.")]
+		public int FloodLimitInterval = 5000;
+
+		[Desc("Amount of chat messages per FloodLimitInterval a players can send before flood is detected.")]
+		public int FloodLimitMessageCount = 5;
+
+		[Desc("Delay in milliseconds before players can send chat messages after flood was detected.")]
+		public int FloodLimitCooldown = 15000;
+
+		[Desc("Can players vote to kick other players?")]
+		public bool EnableVoteKick = true;
+
+		[Desc("After how much time in milliseconds should the vote kick fail after idling?")]
+		public int VoteKickTimer = 30000;
+
+		[Desc("If a vote kick was unsuccessful for how long should the player who started the vote not be able to start new votes?")]
+		public int VoteKickerCooldown = 120000;
+
 		public ServerSettings Clone()
 		{
 			return (ServerSettings)MemberwiseClone();
 		}
 	}
 
-	public class DebugSettings
+	[YamlNode("Debug", shared: true)]
+	public class DebugSettings : SettingsModule
 	{
 		[Desc("Display average FPS and tick/render times")]
 		public bool PerfText = false;
@@ -115,7 +193,7 @@ namespace OpenRA
 		[Desc("Display a graph with various profiling traces")]
 		public bool PerfGraph = false;
 
-		[Desc("Numer of samples to average over when calculating tick and render times.")]
+		[Desc("Number of samples to average over when calculating tick and render times.")]
 		public int Samples = 25;
 
 		[Desc("Check whether a newer version is available online.")]
@@ -155,7 +233,8 @@ namespace OpenRA
 		public bool SyncCheckBotModuleCode = false;
 	}
 
-	public class GraphicSettings
+	[YamlNode("Graphics", shared: true)]
+	public class GraphicSettings : SettingsModule
 	{
 		[Desc("This can be set to Windowed, Fullscreen or PseudoFullscreen.")]
 		public WindowMode Mode = WindowMode.PseudoFullscreen;
@@ -164,10 +243,10 @@ namespace OpenRA
 		public bool VSync = true;
 
 		[Desc("Screen resolution in fullscreen mode.")]
-		public int2 FullscreenSize = new int2(0, 0);
+		public int2 FullscreenSize = new(0, 0);
 
 		[Desc("Screen resolution in windowed mode.")]
-		public int2 WindowedSize = new int2(1024, 768);
+		public int2 WindowedSize = new(1024, 768);
 
 		public bool CursorDouble = false;
 		public WorldViewport ViewportDistance = WorldViewport.Medium;
@@ -179,14 +258,14 @@ namespace OpenRA
 		[Desc("At which frames per second to cap the framerate.")]
 		public int MaxFramerate = 60;
 
+		[Desc("Set a frame rate limit of 1 render frame per game simulation frame (overrides CapFramerate/MaxFramerate).")]
+		public bool CapFramerateToGameFps = false;
+
 		[Desc("Disable the OpenGL debug message callback feature.")]
 		public bool DisableGLDebugMessageCallback = false;
 
 		[Desc("Disable operating-system provided cursor rendering.")]
 		public bool DisableHardwareCursors = false;
-
-		[Desc("Disable legacy OpenGL 2.1 support.")]
-		public bool DisableLegacyGL = true;
 
 		[Desc("Display index to use in a multi-monitor fullscreen setup.")]
 		public int VideoDisplay = 0;
@@ -198,11 +277,14 @@ namespace OpenRA
 			"Automatic: Use the first supported profile.")]
 		public GLProfile GLProfile = GLProfile.Automatic;
 
-		public int BatchSize = 8192;
-		public int SheetSize = 2048;
+		public GraphicSettings Clone()
+		{
+			return (GraphicSettings)MemberwiseClone();
+		}
 	}
 
-	public class SoundSettings
+	[YamlNode("Sound", shared: true)]
+	public class SoundSettings : SettingsModule
 	{
 		public float SoundVolume = 0.5f;
 		public float MusicVolume = 0.5f;
@@ -216,19 +298,25 @@ namespace OpenRA
 		public bool CashTicks = true;
 		public bool Mute = false;
 		public bool MuteBackgroundMusic = false;
+
+		public SoundSettings Clone()
+		{
+			return (SoundSettings)MemberwiseClone();
+		}
 	}
 
-	public class PlayerSettings
+	[YamlNode("Player", shared: true)]
+	public class PlayerSettings : SettingsModule
 	{
 		[Desc("Sets the player nickname.")]
 		public string Name = "Commander";
 		public Color Color = Color.FromArgb(200, 32, 32);
 		public string LastServer = "localhost:1234";
-		public Color[] CustomColors = { };
-		public string Language = "en";
+		public ImmutableArray<Color> CustomColors = [];
 	}
 
-	public class GameSettings
+	[YamlNode("Game", shared: true)]
+	public class GameSettings : SettingsModule
 	{
 		public string Platform = "Default";
 
@@ -236,16 +324,17 @@ namespace OpenRA
 		public int ViewportEdgeScrollMargin = 5;
 
 		public bool LockMouseWindow = false;
+		public MouseControlStyle MouseControlStyle = MouseControlStyle.Modern;
 		public MouseScrollType MouseScroll = MouseScrollType.Joystick;
-		public MouseButtonPreference MouseButtonPreference = new MouseButtonPreference();
 		public float ViewportEdgeScrollStep = 30f;
 		public float UIScrollSpeed = 50f;
 		public float ZoomSpeed = 0.04f;
 		public int SelectionDeadzone = 24;
 		public int MouseScrollDeadzone = 8;
 
-		public bool UseClassicMouseStyle = false;
 		public bool UseAlternateScrollButton = false;
+
+		public bool HideReplayChat = false;
 
 		public StatusBarsType StatusBars = StatusBarsType.Standard;
 		public TargetLinesType TargetLines = TargetLinesType.Manual;
@@ -270,123 +359,142 @@ namespace OpenRA
 		[Desc("Allow mods to enable the Discord service that can interact with a local Discord client.")]
 		public bool EnableDiscordService = true;
 
-		public TextNotificationPoolFilters TextNotificationPoolFilters = TextNotificationPoolFilters.Feedback;
+		public TextNotificationPoolFilters TextNotificationPoolFilters = TextNotificationPoolFilters.Feedback | TextNotificationPoolFilters.Transients;
+
+		public MouseButton ResolveActionButton(MouseActionType actionType)
+		{
+			switch (actionType)
+			{
+				case MouseActionType.ConfirmOrder:
+					return MouseControlStyle == MouseControlStyle.Modern ? MouseButton.Right : MouseButton.Left;
+				case MouseActionType.Contextual:
+					return MouseControlStyle == MouseControlStyle.Classic ? MouseButton.Left : MouseButton.Right;
+				default: return MouseButton.Left;
+			}
+		}
+
+		public MouseButton ResolveCancelButton(MouseActionType actionType)
+		{
+			return ResolveActionButton(actionType) == MouseButton.Left ? MouseButton.Right : MouseButton.Left;
+		}
 	}
 
 	public class Settings
 	{
 		readonly string settingsFile;
 
-		public readonly PlayerSettings Player = new PlayerSettings();
-		public readonly GameSettings Game = new GameSettings();
-		public readonly SoundSettings Sound = new SoundSettings();
-		public readonly GraphicSettings Graphics = new GraphicSettings();
-		public readonly ServerSettings Server = new ServerSettings();
-		public readonly DebugSettings Debug = new DebugSettings();
-		internal Dictionary<string, Hotkey> Keys = new Dictionary<string, Hotkey>();
+		public readonly PlayerSettings Player;
+		public readonly GameSettings Game;
+		public readonly SoundSettings Sound;
+		public readonly GraphicSettings Graphics;
+		public readonly ServerSettings Server;
+		public readonly DebugSettings Debug;
 
-		public readonly Dictionary<string, object> Sections;
-
-		// A direct clone of the file loaded from disk.
-		// Any changed settings will be merged over this on save,
-		// allowing us to persist any unknown configuration keys
-		readonly List<MiniYamlNode> yamlCache = new List<MiniYamlNode>();
+		readonly Arguments args;
+		readonly TypeDictionary modules = [];
+		readonly List<MiniYamlNodeBuilder> yaml;
 
 		public Settings(string file, Arguments args)
 		{
 			settingsFile = file;
-			Sections = new Dictionary<string, object>()
-			{
-				{ "Player", Player },
-				{ "Game", Game },
-				{ "Sound", Sound },
-				{ "Graphics", Graphics },
-				{ "Server", Server },
-				{ "Debug", Debug },
-			};
+			this.args = args;
 
-			// Override fieldloader to ignore invalid entries
-			var err1 = FieldLoader.UnknownFieldAction;
-			var err2 = FieldLoader.InvalidValueAction;
-			try
-			{
-				FieldLoader.UnknownFieldAction = (s, f) => Console.WriteLine($"Ignoring unknown field `{s}` on `{f.Name}`");
+			if (File.Exists(settingsFile))
+				yaml = MiniYaml.FromFile(settingsFile, false)
+					.Select(n => new MiniYamlNodeBuilder(n))
+					.ToList();
+			else
+				yaml = [];
 
-				if (File.Exists(settingsFile))
-				{
-					yamlCache = MiniYaml.FromFile(settingsFile, false);
-					foreach (var yamlSection in yamlCache)
-					{
-						if (yamlSection.Key != null && Sections.TryGetValue(yamlSection.Key, out var settingsSection))
-							LoadSectionYaml(yamlSection.Value, settingsSection);
-					}
-
-					var keysNode = yamlCache.FirstOrDefault(n => n.Key == "Keys");
-					if (keysNode != null)
-						foreach (var node in keysNode.Value.Nodes)
-							if (node.Key != null)
-								Keys[node.Key] = FieldLoader.GetValue<Hotkey>(node.Key, node.Value.Value);
-				}
-
-				// Override with commandline args
-				foreach (var kv in Sections)
-					foreach (var f in kv.Value.GetType().GetFields())
-						if (args.Contains(kv.Key + "." + f.Name))
-							FieldLoader.LoadField(kv.Value, f.Name, args.GetValue(kv.Key + "." + f.Name, ""));
-			}
-			finally
-			{
-				FieldLoader.UnknownFieldAction = err1;
-				FieldLoader.InvalidValueAction = err2;
-			}
+			// Load the default sections
+			Player = GetOrCreate<PlayerSettings>(null);
+			Game = GetOrCreate<GameSettings>(null);
+			Sound = GetOrCreate<SoundSettings>(null);
+			Graphics = GetOrCreate<GraphicSettings>(null);
+			Server = GetOrCreate<ServerSettings>(null);
+			Debug = GetOrCreate<DebugSettings>(null);
 		}
 
-		public void Save()
+		public T GetOrCreate<T>(ObjectCreator objectCreator, string mod = null) where T : SettingsModule
 		{
-			foreach (var kv in Sections)
+			var attribute = typeof(T).GetCustomAttribute<SettingsModule.YamlNodeAttribute>();
+			if (attribute == null)
+				throw new InvalidDataException("Settings modules must define a YamlNode attribute");
+
+			var module = attribute.Shared ? modules.GetOrDefault<T>() :
+				modules.WithInterface<T>().SingleOrDefault(m => m.ModInstance == mod);
+
+			// Lazily load/create the module on first use
+			if (module == null)
 			{
-				var sectionYaml = yamlCache.FirstOrDefault(x => x.Key == kv.Key);
-				if (sectionYaml == null)
+				if (objectCreator != null)
+					module = (T)objectCreator.CreateBasic(typeof(T));
+				else
+					module = Activator.CreateInstance<T>();
+
+				var nodeKey = attribute.Key;
+				if (!attribute.Shared)
 				{
-					sectionYaml = new MiniYamlNode(kv.Key, new MiniYaml(""));
-					yamlCache.Add(sectionYaml);
+					module.ModInstance = mod;
+					nodeKey = $"{attribute.Key}@{mod}";
 				}
 
-				var defaultValues = Activator.CreateInstance(kv.Value.GetType());
-				var fields = FieldLoader.GetTypeLoadInfo(kv.Value.GetType());
-				foreach (var fli in fields)
+				var err1 = FieldLoader.UnknownFieldAction;
+				var err2 = FieldLoader.InvalidValueAction;
+				try
 				{
-					var serialized = FieldSaver.FormatValue(kv.Value, fli.Field);
-					var defaultSerialized = FieldSaver.FormatValue(defaultValues, fli.Field);
-
-					// Fields with their default value are not saved in the settings yaml
-					// Make sure that we erase any previously defined custom values
-					if (serialized == defaultSerialized)
-						sectionYaml.Value.Nodes.RemoveAll(n => n.Key == fli.YamlName);
-					else
+					FieldLoader.InvalidValueAction = (value, fieldType, fieldName) =>
 					{
-						// Update or add the custom value
-						var fieldYaml = sectionYaml.Value.Nodes.FirstOrDefault(n => n.Key == fli.YamlName);
-						if (fieldYaml != null)
-							fieldYaml.Value.Value = serialized;
-						else
-							sectionYaml.Value.Nodes.Add(new MiniYamlNode(fli.YamlName, new MiniYaml(serialized)));
+						var ret = fieldType.IsValueType ? RuntimeHelpers.GetUninitializedObject(fieldType) : null;
+						Console.WriteLine($"FieldLoader: Cannot parse `{value}` into field `{fieldName}` of type `{fieldType}`; substituting default `{ret}`");
+						return ret;
+					};
+
+					var node = yaml.FirstOrDefault(n => n.Key == nodeKey);
+					if (node == null)
+					{
+						node = new MiniYamlNodeBuilder(nodeKey, "");
+						yaml.Add(node);
+					}
+
+					typeof(T).GetField(nameof(SettingsModule.Yaml))?.SetValue(module, node.Value);
+					FieldLoader.Load(module, node.Value.Build());
+
+					// Override with commandline args
+					foreach (var f in typeof(T).GetFields())
+					{
+						var argName = attribute.Key + "." + f.Name;
+						if (args.Contains(argName))
+							FieldLoader.LoadFieldOrProperty(module, f.Name, args.GetValue(argName, ""));
 					}
 				}
+				finally
+				{
+					FieldLoader.UnknownFieldAction = err1;
+					FieldLoader.InvalidValueAction = err2;
+				}
+
+				modules.Add(module);
 			}
 
-			var keysYaml = yamlCache.FirstOrDefault(x => x.Key == "Keys");
-			if (keysYaml == null)
+			return module;
+		}
+
+		public void Save(bool commitModules = true)
+		{
+			if (commitModules)
+				foreach (var m in modules)
+					((SettingsModule)m).Commit();
+
+			// Filter out modules with no fields and force a newline between each module
+			var container = new[] { null, new MiniYamlNodeBuilder("", "") };
+			IEnumerable<MiniYamlNodeBuilder> AddSpacer(MiniYamlNodeBuilder n)
 			{
-				keysYaml = new MiniYamlNode("Keys", new MiniYaml(""));
-				yamlCache.Add(keysYaml);
+				container[0] = n;
+				return container;
 			}
 
-			keysYaml.Value.Nodes.Clear();
-			foreach (var kv in Keys)
-				keysYaml.Value.Nodes.Add(new MiniYamlNode(kv.Key, FieldSaver.FormatValue(kv.Value)));
-
-			yamlCache.WriteToFile(settingsFile);
+			yaml.Where(n => n.Value.Nodes.Count > 0).SelectMany(AddSpacer).WriteToFile(settingsFile);
 		}
 
 		static string SanitizedName(string dirty)
@@ -397,18 +505,18 @@ namespace OpenRA
 			var clean = dirty;
 
 			// reserved characters for MiniYAML and JSON
-			var disallowedChars = new char[] { '#', '@', ':', '\n', '\t', '[', ']', '{', '}', '"', '`' };
+			var disallowedChars = new char[] { '#', '@', ':', '\n', '\t', '[', ']', '{', '}', '<', '>', '"', '`' };
 			foreach (var disallowedChar in disallowedChars)
 				clean = clean.Replace(disallowedChar.ToString(), string.Empty);
 
 			return clean;
 		}
 
-		public static string SanitizedServerName(string dirty)
+		public string SanitizedServerName(string dirty)
 		{
 			var clean = SanitizedName(dirty);
 			if (string.IsNullOrWhiteSpace(clean))
-				return new ServerSettings().Name;
+				return $"{SanitizedPlayerName(Player.Name)}'s Game";
 			else
 				return clean;
 		}
@@ -416,31 +524,17 @@ namespace OpenRA
 		public static string SanitizedPlayerName(string dirty)
 		{
 			var forbiddenNames = new string[] { "Open", "Closed" };
-			var botNames = OpenRA.Game.ModData.DefaultRules.Actors[SystemActors.Player].TraitInfos<IBotInfo>().Select(t => t.Name);
 
 			var clean = SanitizedName(dirty);
 
-			if (string.IsNullOrWhiteSpace(clean) || forbiddenNames.Contains(clean) || botNames.Contains(clean))
+			if (string.IsNullOrWhiteSpace(clean) || forbiddenNames.Contains(clean))
 				clean = new PlayerSettings().Name;
 
 			// avoid UI glitches
 			if (clean.Length > 16)
-				clean = clean.Substring(0, 16);
+				clean = clean[..16];
 
 			return clean;
-		}
-
-		static void LoadSectionYaml(MiniYaml yaml, object section)
-		{
-			var defaults = Activator.CreateInstance(section.GetType());
-			FieldLoader.InvalidValueAction = (s, t, f) =>
-			{
-				var ret = defaults.GetType().GetField(f).GetValue(defaults);
-				Console.WriteLine($"FieldLoader: Cannot parse `{s}` into `{f}:{t.Name}`; substituting default `{ret}`");
-				return ret;
-			};
-
-			FieldLoader.Load(section, yaml);
 		}
 	}
 }

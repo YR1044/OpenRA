@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -38,7 +38,7 @@ namespace OpenRA.Mods.Common.Traits
 	/// Requires basing *Info on ConditionalTraitInfo and using base(info) constructor.
 	/// TraitEnabled will be called at creation if the trait starts enabled or does not use conditions.
 	/// </summary>
-	public abstract class ConditionalTrait<InfoType> : IObservesVariables, IDisabledTrait, INotifyCreated, ISync where InfoType : ConditionalTraitInfo
+	public abstract class ConditionalTrait<InfoType> : IObservesVariables, IDisabledTrait, INotifyCreated where InfoType : ConditionalTraitInfo
 	{
 		public readonly InfoType Info;
 
@@ -49,10 +49,9 @@ namespace OpenRA.Mods.Common.Traits
 				yield return new VariableObserver(RequiredConditionsChanged, Info.RequiresCondition.Variables);
 		}
 
-		[Sync]
 		public bool IsTraitDisabled { get; private set; }
 
-		public ConditionalTrait(InfoType info)
+		protected ConditionalTrait(InfoType info)
 		{
 			Info = info;
 

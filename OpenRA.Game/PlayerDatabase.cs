@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,6 @@
  */
 #endregion
 
-using System.Linq;
 using System.Threading.Tasks;
 using OpenRA.FileFormats;
 using OpenRA.Graphics;
@@ -20,7 +19,9 @@ namespace OpenRA
 {
 	public class PlayerDatabase : IGlobalModData
 	{
+		public readonly string Forum = "https://forum.openra.net/";
 		public readonly string Profile = "https://forum.openra.net/openra/info/";
+		public readonly string Link = "https://forum.openra.net/openra/link";
 		public readonly int IconSize = 24;
 
 		// 512x512 is large enough for 49 unique 72x72 badges
@@ -53,7 +54,7 @@ namespace OpenRA
 						Game.RunAfterTick(() =>
 						{
 							Util.FastCopyIntoSprite(sprite, icon);
-							sprite.Sheet.CommitBufferedData();
+							sprite.Sheet.CommitBufferedData(sprite.Bounds);
 						});
 					}
 				}
@@ -94,10 +95,10 @@ namespace OpenRA
 				});
 			}
 
-			var labelNode = yaml.Nodes.FirstOrDefault(n => n.Key == "Label");
-			var icon24Node = yaml.Nodes.FirstOrDefault(n => n.Key == "Icon24");
-			var icon48Node = yaml.Nodes.FirstOrDefault(n => n.Key == "Icon48");
-			var icon72Node = yaml.Nodes.FirstOrDefault(n => n.Key == "Icon72");
+			var labelNode = yaml.NodeWithKeyOrDefault("Label");
+			var icon24Node = yaml.NodeWithKeyOrDefault("Icon24");
+			var icon48Node = yaml.NodeWithKeyOrDefault("Icon48");
+			var icon72Node = yaml.NodeWithKeyOrDefault("Icon72");
 			if (labelNode == null)
 				return null;
 

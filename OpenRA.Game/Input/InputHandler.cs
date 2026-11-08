@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -37,24 +37,17 @@ namespace OpenRA
 
 		public void OnKeyInput(KeyInput input)
 		{
-			Sync.RunUnsynced(Game.Settings.Debug.SyncCheckUnsyncedCode, world, () => Ui.HandleKeyPress(input));
+			Sync.RunUnsynced(world, () => Ui.HandleKeyPress(input));
 		}
 
 		public void OnTextInput(string text)
 		{
-			Sync.RunUnsynced(Game.Settings.Debug.SyncCheckUnsyncedCode, world, () => Ui.HandleTextInput(text));
+			Sync.RunUnsynced(world, () => Ui.HandleTextInput(text));
 		}
 
 		public void OnMouseInput(MouseInput input)
 		{
-			Sync.RunUnsynced(Game.Settings.Debug.SyncCheckUnsyncedCode, world, () => Ui.HandleInput(input));
+			Sync.RunUnsynced(world, () => Ui.HandleInput(input));
 		}
-	}
-
-	public class MouseButtonPreference
-	{
-		public MouseButton Action => Game.Settings.Game.UseClassicMouseStyle ? MouseButton.Left : MouseButton.Right;
-
-		public MouseButton Cancel => Game.Settings.Game.UseClassicMouseStyle ? MouseButton.Right : MouseButton.Left;
 	}
 }

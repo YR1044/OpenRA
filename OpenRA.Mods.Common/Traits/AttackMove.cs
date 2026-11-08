@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,14 +12,14 @@
 using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Mods.Common.Activities;
-using OpenRA.Orders;
+using OpenRA.Mods.Common.Orders;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Provides access to the attack-move command, which will make the actor automatically engage viable targets while moving to the destination.")]
-	class AttackMoveInfo : TraitInfo, Requires<IMoveInfo>
+	public class AttackMoveInfo : TraitInfo, Requires<IMoveInfo>
 	{
 		[VoiceReference]
 		public readonly string Voice = "Action";
@@ -53,7 +53,7 @@ namespace OpenRA.Mods.Common.Traits
 		public override object Create(ActorInitializer init) { return new AttackMove(init.Self, this); }
 	}
 
-	class AttackMove : IResolveOrder, IOrderVoice
+	sealed class AttackMove : IResolveOrder, IOrderVoice
 	{
 		public readonly AttackMoveInfo Info;
 		readonly IMove move;
@@ -83,6 +83,9 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			if (order.OrderString == "AttackMove" || order.OrderString == "AssaultMove")
 			{
+				if (!order.Target.IsValidFor(self))
+					return;
+
 				var cell = self.World.Map.Clamp(self.World.Map.CellContaining(order.Target.CenterPosition));
 				if (!Info.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
 					return;
@@ -101,39 +104,30 @@ namespace OpenRA.Mods.Common.Traits
 	{
 		TraitPair<AttackMove>[] subjects;
 
-		readonly MouseButton expectedButton;
+		protected override MouseActionType ActionType => MouseActionType.ConfirmOrder;
 
-		public AttackMoveOrderGenerator(IEnumerable<Actor> subjects, MouseButton button)
+		public AttackMoveOrderGenerator(World world, IEnumerable<Actor> subjects)
+			: base(world)
 		{
-			expectedButton = button;
-
 			this.subjects = subjects.Where(a => !a.IsDead)
 				.SelectMany(a => a.TraitsImplementing<AttackMove>()
 					.Select(am => new TraitPair<AttackMove>(a, am)))
 				.ToArray();
 		}
 
-		public override IEnumerable<Order> Order(World world, CPos cell, int2 worldPixel, MouseInput mi)
+		protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
-			if (mi.Button != expectedButton)
+			var queued = mi.Modifiers.HasModifier(Modifiers.Shift);
+			if (!queued)
 				world.CancelInputMode();
+			else
+				HasIssuedQueuedCommand = true;
 
-			return OrderInner(world, cell, mi);
-		}
+			var orderName = mi.Modifiers.HasModifier(Modifiers.Ctrl) ? "AssaultMove" : "AttackMove";
 
-		protected virtual IEnumerable<Order> OrderInner(World world, CPos cell, MouseInput mi)
-		{
-			if (mi.Button == expectedButton)
-			{
-				world.CancelInputMode();
-
-				var queued = mi.Modifiers.HasModifier(Modifiers.Shift);
-				var orderName = mi.Modifiers.HasModifier(Modifiers.Ctrl) ? "AssaultMove" : "AttackMove";
-
-				// Cells outside the playable area should be clamped to the edge for consistency with move orders
-				cell = world.Map.Clamp(cell);
-				yield return new Order(orderName, null, Target.FromCell(world, cell), queued, null, subjects.Select(s => s.Actor).ToArray());
-			}
+			// Cells outside the playable area should be clamped to the edge for consistency with move orders
+			cell = world.Map.Clamp(cell);
+			yield return new Order(orderName, null, Target.FromCell(world, cell), queued, null, subjects.Select(s => s.Actor).ToArray());
 		}
 
 		public override void SelectionChanged(World world, IEnumerable<Actor> selected)

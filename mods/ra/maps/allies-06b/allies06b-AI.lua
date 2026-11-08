@@ -1,11 +1,13 @@
 --[[
-   Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+   Copyright (c) The OpenRA Developers and Contributors
    This file is part of OpenRA, which is free software. It is made
    available to you under the terms of the GNU General Public License
    as published by the Free Software Foundation, either version 3 of
    the License, or (at your option) any later version. For more
    information, see COPYING.
 ]]
+
+SovietsActivated = false
 
 WTransWays =
 {
@@ -23,23 +25,23 @@ WTransUnits =
 
 WTransDelays =
 {
-	easy = 4,
-	normal = 3,
-	hard = 1
+	easy = DateTime.Seconds(240),
+	normal = DateTime.Seconds(180),
+	hard = DateTime.Seconds(140)
+}
+
+FirstAirDelays =
+{
+	easy = { DateTime.Seconds(180), DateTime.Seconds(270) },
+	normal = { DateTime.Seconds(120), DateTime.Seconds(180) },
+	hard = { DateTime.Seconds(90), DateTime.Seconds(135) }
 }
 
 BuildDelays =
 {
-	easy = 90,
-	normal = 60,
-	hard = 30
-}
-
-WaterAttacks =
-{
-	easy = 1,
-	normal = 2,
-	hard = 3
+	easy = DateTime.Seconds(90),
+	normal = DateTime.Seconds(60),
+	hard = DateTime.Seconds(30)
 }
 
 WaterAttackTypes =
@@ -53,9 +55,9 @@ VehicleTypes = { "v2rl", "3tnk", "3tnk", "3tnk", "3tnk", "harv" }
 
 InfTypes =
 {
-	{ "e1", "e1", "e1", "e1", "e1"},
-	{ "e2", "e2", "e1", "e1", "e1"},
-	{ "e4", "e4", "e4", "e1", "e1"}
+	{ "e1", "e1", "e1" },
+	{ "e2", "e2", "e1" },
+	{ "e4", "e4", "e1" }
 }
 
 AttackRallyPoints =
@@ -65,57 +67,47 @@ AttackRallyPoints =
 	{ SovietSideAttack2.Location, SovietBaseAttack.Location }
 }
 
-ImportantBuildings = { WarFactory, Airfield1, Airfield2, Radar2, Refinery, SovietConyard }
+ImportantBuildings = { WarFactory, Airfield1, Airfield2, NorthRadarDome, Refinery, SovietConyard }
 SovietAircraftType = { "yak" }
-Yaks = { }
-IdlingUnits = { }
 IdlingTanks = { tank1, tank2, tank3, tank4, tank5, tank6, tank7 }
 IdlingNavalUnits = { }
 
 InitialiseAttack = function()
 	Utils.Do(ImportantBuildings, function(a)
 		Trigger.OnDamaged(a, function()
-			Utils.Do(IdlingTanks, function(unit)
-				if not unit.IsDead then
-					IdleHunt(unit)
-				end
-			end)
+			Utils.Do(IdlingTanks, IdleHunt)
 		end)
 		Trigger.OnCapture(a, function()
-			Utils.Do(IdlingTanks, function(unit)
-				if not unit.IsDead then
-					IdleHunt(unit)
-				end
-			end)
+			Utils.Do(IdlingTanks, IdleHunt)
 		end)
 	end)
 end
 
-Attack = 0
+InfantryWave = 0
 ProduceInfantry = function()
-	if SovietBarracks.IsDead or SovietBarracks.Owner ~= ussr then
+	if SovietBarracks.IsDead or SovietBarracks.Owner ~= USSR then
 		return
 	end
 
-	Attack = Attack + 1
+	InfantryWave = InfantryWave + 1
 	local toBuild = Utils.Random(InfTypes)
-	ussr.Build(toBuild, function(units)
-		if Attack == 2 and not AttackTank1.IsDead then
+	USSR.Build(toBuild, function(units)
+		if InfantryWave == 2 and not AttackTank1.IsDead then
 			units[#units + 1] = AttackTank1
-		elseif Attack == 4 and not AttackTank2.IsDead then
+		elseif InfantryWave == 4 and not AttackTank2.IsDead then
 			units[#units + 1] = AttackTank2
 		end
 
 		SendAttack(units, Utils.Random(AttackRallyPoints))
-		Trigger.AfterDelay(DateTime.Seconds(BuildDelays), ProduceInfantry)
+		Trigger.AfterDelay(BuildDelays[Difficulty], ProduceInfantry)
 	end)
 end
 
 ProduceVehicles = function()
-	if WarFactory.IsDead or WarFactory.Owner ~= ussr then
+	if WarFactory.IsDead or WarFactory.Owner ~= USSR then
 		return
 	end
-	ussr.Build(VehicleTypes, function(units)
+	USSR.Build(VehicleTypes, function(units)
 		Utils.Do(units, function(unit)
 			if unit.Type ~= "harv" then
 				IdlingTanks[#IdlingTanks + 1] = unit
@@ -125,48 +117,42 @@ ProduceVehicles = function()
 end
 
 ProduceNaval = function()
-	if SubPen.IsDead or SubPen.Owner ~= ussr then
+	if not Greece.HasPrerequisites({ "syrd" }) then
+		Trigger.AfterDelay(DateTime.Seconds(60), ProduceNaval)
 		return
 	end
 
-	if not shouldProduce and #Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == player and self.Type == "syrd" end) < 1 then
-		Trigger.AfterDelay(DateTime.Minutes(1), ProduceNaval)
+	if SubPen.IsDead or SubPen.Owner ~= USSR then
 		return
 	end
 
-	shouldProduce = true
-
-	ussr.Build(WaterAttackTypes, function(units)
+	USSR.Build(WaterAttackTypes[Difficulty], function(units)
 		Utils.Do(units, function(unit)
 			IdlingNavalUnits[#IdlingNavalUnits + 1] = unit
 		end)
 
 		Trigger.AfterDelay(DateTime.Minutes(1) + DateTime.Seconds(40), ProduceNaval)
-		if #IdlingNavalUnits >= WaterAttacks then
+		if #IdlingNavalUnits >= #WaterAttackTypes[Difficulty] then
 			Trigger.AfterDelay(DateTime.Seconds(20), function()
-				SendAttack(SetupNavalAttackGroup(), { SubPatrol1_2.Location })
+				SendAttack(SetupNavalAttackGroup(), { Harbor.Location })
 			end)
 		end
 	end)
 end
 
 ProduceAircraft = function()
-	if (Airfield1.IsDead or Airfield1.Owner ~= ussr) and (Airfield2.IsDead or Airfield2.Owner ~= ussr) then
+	if not USSR.HasPrerequisites({ "afld" }) then
 		return
 	end
 
-	ussr.Build(SovietAircraftType, function(units)
-		local yak = units[1]
-		Yaks[#Yaks + 1] = yak
+	USSR.Build(SovietAircraftType, function(units)
+		Utils.Do(units, function(yak)
+			InitializeAttackAircraft(yak, Greece)
 
-		Trigger.OnKilled(yak, ProduceAircraft)
-
-		local alive = Utils.Where(Yaks, function(y) return not y.IsDead end)
-		if #alive < 2 then
-			Trigger.AfterDelay(DateTime.Seconds(BuildDelays / 2), ProduceAircraft)
-		end
-
-		InitializeAttackAircraft(yak, player)
+			Trigger.OnKilled(yak, function()
+				Trigger.AfterDelay(BuildDelays[Difficulty], ProduceAircraft)
+			end)
+		end)
 	end)
 end
 
@@ -179,7 +165,7 @@ end
 
 SetupNavalAttackGroup = function()
 	local units = { }
-	for i = 0, 3 do
+	for i = 1, 3 do
 		if #IdlingNavalUnits == 0 then
 			return units
 		end
@@ -196,8 +182,8 @@ end
 
 WTransWaves = function()
 	local way = Utils.Random(WTransWays)
-	local units = Utils.Random(WTransUnits)
-	local attackUnits = Reinforcements.ReinforceWithTransport(ussr, "lst", units , way, { way[2], way[1] })[2]
+	local units = Utils.Random(WTransUnits[Difficulty])
+	local attackUnits = Reinforcements.ReinforceWithTransport(USSR, "lst", units , way, { way[2], way[1] })[2]
 	Utils.Do(attackUnits, function(a)
 		Trigger.OnAddedToWorld(a, function()
 			a.AttackMove(SovietBaseAttack.Location)
@@ -205,23 +191,24 @@ WTransWaves = function()
 		end)
 	end)
 
-	Trigger.AfterDelay(DateTime.Minutes(WTransDelays), WTransWaves)
+	Trigger.AfterDelay(WTransDelays[Difficulty], WTransWaves)
 end
 
 ActivateAI = function()
-	local difficulty = Map.LobbyOption("difficulty")
-	WaterAttackTypes = WaterAttackTypes[difficulty]
-	WaterAttacks = WaterAttacks[difficulty]
-	WTransUnits = WTransUnits[difficulty]
-	WTransDelays = WTransDelays[difficulty]
-	BuildDelays = BuildDelays[difficulty]
+	if SovietsActivated then
+		return
+	end
+	SovietsActivated = true
 
 	InitialiseAttack()
 	Trigger.AfterDelay(DateTime.Seconds(40), ProduceInfantry)
-	Trigger.AfterDelay(DateTime.Minutes(1) + DateTime.Seconds(10), ProduceAircraft)
 	Trigger.AfterDelay(DateTime.Minutes(2) + DateTime.Seconds(10), ProduceVehicles)
 
+	Utils.Do(FirstAirDelays[Difficulty], function(delay)
+		Trigger.AfterDelay(delay, ProduceAircraft)
+	end)
+
 	WarFactory.RallyPoint = WeaponMeetPoint.Location
-	Trigger.AfterDelay(DateTime.Minutes(4) + DateTime.Seconds(10), ProduceNaval)
-	Trigger.AfterDelay(DateTime.Minutes(WTransDelays + 1) + DateTime.Seconds(30), WTransWaves)
+	Trigger.AfterDelay(WTransDelays[Difficulty] + DateTime.Seconds(150), WTransWaves)
+	Trigger.OnAnyKilled(USSR.GetActorsByType("ss"), ProduceNaval)
 end

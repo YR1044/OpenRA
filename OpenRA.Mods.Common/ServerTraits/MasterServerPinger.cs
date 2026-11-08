@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,9 +10,11 @@
 #endregion
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using BeaconLib;
 using OpenRA.Network;
@@ -22,7 +24,7 @@ using S = OpenRA.Server.Server;
 
 namespace OpenRA.Mods.Common.Server
 {
-	public class MasterServerPinger : ServerTrait, ITick, INotifyServerStart, INotifySyncLobbyInfo, IStartGame, IEndGame
+	public class MasterServerPinger : ServerTrait, ITick, INotifyServerStart, INotifyServerShutdown, INotifySyncLobbyInfo, IStartGame, IEndGame
 	{
 		// 3 minutes (in milliseconds). Server has a 5 minute TTL for games, so give ourselves a bit of leeway.
 		const int MasterPingInterval = 60 * 3 * 1000;
@@ -30,34 +32,45 @@ namespace OpenRA.Mods.Common.Server
 		// 1 second (in milliseconds) minimum delay between pings
 		const int RateLimitInterval = 1000;
 
-		static readonly Beacon LanGameBeacon;
-		static readonly Dictionary<int, string> MasterServerErrors = new Dictionary<int, string>()
-		{
-			{ 1, "Server port is not accessible from the internet." },
-			{ 2, "Server name contains a blacklisted word." }
-		};
+		[FluentReference]
+		const string NoPortForward = "notification-no-port-forward";
 
+		[FluentReference]
+		const string BlacklistedTitle = "notification-blacklisted-server-name";
+
+		[FluentReference]
+		const string InvalidErrorCode = "notification-invalid-error-code";
+
+		[FluentReference]
+		const string Connected = "notification-master-server-connected";
+
+		[FluentReference]
+		const string Error = "notification-master-server-error";
+
+		[FluentReference]
+		const string GameOffline = "notification-game-offline";
+
+		static readonly ushort LanAdvertisePort = (ushort)new Random(DateTime.Now.Millisecond).Next(2048, 60000);
+		static readonly FrozenDictionary<int, string> MasterServerErrors = new Dictionary<int, string>
+		{
+			{ 1, NoPortForward },
+			{ 2, BlacklistedTitle }
+		}.ToFrozenDictionary();
+
+		Beacon lanGameBeacon;
 		long lastPing = 0;
 		long lastChanged = 0;
 		bool isInitialPing = true;
 
 		volatile bool isBusy;
-		readonly Queue<string> masterServerMessages = new Queue<string>();
-
-		static MasterServerPinger()
-		{
-			try
-			{
-				LanGameBeacon = new Beacon("OpenRALANGame", (ushort)new Random(DateTime.Now.Millisecond).Next(2048, 60000));
-			}
-			catch (Exception ex)
-			{
-				Log.Write("server", "BeaconLib.Beacon: " + ex.Message);
-			}
-		}
+		readonly Queue<string> masterServerMessages = [];
+		readonly Lock masterServerMessagesLock = new();
 
 		public void Tick(S server)
 		{
+			if (!server.IsMultiplayer)
+				return;
+
 			// Force an update if the last one was too long ago so the advertisement doesn't time out
 			if (Game.RunTime - lastChanged > MasterPingInterval)
 				lastChanged = Game.RunTime;
@@ -65,27 +78,50 @@ namespace OpenRA.Mods.Common.Server
 			// Update the master server and LAN clients if something has changed
 			// Note that isBusy is set while the master server ping is running on a
 			// background thread, and limits LAN pings as well as master server pings for simplicity.
-			if (!isBusy && ((lastChanged > lastPing && Game.RunTime - lastPing > RateLimitInterval) || isInitialPing))
+			if ((server.Settings.AdvertiseOnline || server.Settings.AdvertiseOnLocalNetwork)
+				&& !isBusy && ((lastChanged > lastPing && Game.RunTime - lastPing > RateLimitInterval) || isInitialPing))
 			{
 				var gs = new GameServer(server);
 				if (server.Settings.AdvertiseOnline)
 					UpdateMasterServer(server, gs.ToPOSTData(false));
 
-				if (LanGameBeacon != null)
-					LanGameBeacon.BeaconData = gs.ToPOSTData(true);
+				if (server.Settings.AdvertiseOnLocalNetwork && lanGameBeacon != null)
+					lanGameBeacon.BeaconData = gs.ToPOSTData(true);
 
 				lastPing = Game.RunTime;
 			}
 
-			lock (masterServerMessages)
-				while (masterServerMessages.Count > 0)
-					server.SendMessage(masterServerMessages.Dequeue());
+			if (server.Settings.AdvertiseOnline)
+				lock (masterServerMessagesLock)
+					while (masterServerMessages.Count > 0)
+						server.SendFluentMessage(masterServerMessages.Dequeue());
 		}
 
-		public void ServerStarted(S server)
+		void INotifyServerStart.ServerStarted(S server)
 		{
-			if (server.Type != ServerType.Local && LanGameBeacon != null)
-				LanGameBeacon.Start();
+			if (server.IsMultiplayer && server.Settings.AdvertiseOnLocalNetwork)
+			{
+				if (lanGameBeacon == null)
+					CreateLanGameBeacon();
+
+				lanGameBeacon?.Start();
+			}
+		}
+
+		void INotifyServerShutdown.ServerShutdown(S server)
+		{
+			if (!server.IsMultiplayer)
+				return;
+
+			if (server.Settings.AdvertiseOnline)
+			{
+				// Announce that the game has ended to remove it from the list.
+				var gameServer = new GameServer(server);
+				UpdateMasterServer(server, gameServer.ToPOSTData(false));
+			}
+
+			lanGameBeacon?.Stop();
+			lanGameBeacon = null;
 		}
 
 		public void LobbyInfoSynced(S server)
@@ -100,7 +136,8 @@ namespace OpenRA.Mods.Common.Server
 
 		public void GameEnded(S server)
 		{
-			LanGameBeacon?.Stop();
+			lanGameBeacon?.Stop();
+			lanGameBeacon = null;
 
 			lastChanged = Game.RunTime;
 		}
@@ -113,7 +150,7 @@ namespace OpenRA.Mods.Common.Server
 			{
 				try
 				{
-					var endpoint = server.ModData.Manifest.Get<WebServices>().ServerAdvertise;
+					var endpoint = server.ModData.GetOrCreate<WebServices>().ServerAdvertise;
 
 					var client = HttpClientFactory.Create();
 					var response = await client.PostAsync(endpoint, new StringContent(postData));
@@ -131,25 +168,25 @@ namespace OpenRA.Mods.Common.Server
 							var regex = new Regex(@"^\[(?<code>-?\d+)\](?<message>.*)");
 							var match = regex.Match(masterResponseText);
 							errorMessage = match.Success && int.TryParse(match.Groups["code"].Value, out errorCode) ?
-								match.Groups["message"].Value.Trim() : "Failed to parse error message";
+								match.Groups["message"].Value.Trim() : InvalidErrorCode;
 						}
 
 						isInitialPing = false;
-						lock (masterServerMessages)
+						lock (masterServerMessagesLock)
 						{
-							masterServerMessages.Enqueue("Master server communication established.");
+							masterServerMessages.Enqueue(Connected);
 							if (errorCode != 0)
 							{
 								// Hardcoded error messages take precedence over the server-provided messages
 								if (!MasterServerErrors.TryGetValue(errorCode, out var message))
 									message = errorMessage;
 
-								masterServerMessages.Enqueue("Warning: " + message);
+								masterServerMessages.Enqueue(message);
 
 								// Positive error codes indicate errors that prevent advertisement
 								// Negative error codes are non-fatal warnings
 								if (errorCode > 0)
-									masterServerMessages.Enqueue("Game has not been advertised online.");
+									masterServerMessages.Enqueue(GameOffline);
 							}
 						}
 					}
@@ -157,12 +194,26 @@ namespace OpenRA.Mods.Common.Server
 				catch (Exception ex)
 				{
 					Log.Write("server", ex.ToString());
-					lock (masterServerMessages)
-						masterServerMessages.Enqueue("Master server communication failed.");
+					lock (masterServerMessagesLock)
+						masterServerMessages.Enqueue(Error);
 				}
 
 				isBusy = false;
 			});
+		}
+
+		void CreateLanGameBeacon()
+		{
+			try
+			{
+				lanGameBeacon?.Stop();
+				lanGameBeacon = new Beacon("OpenRALANGame", LanAdvertisePort);
+			}
+			catch (Exception ex)
+			{
+				lanGameBeacon = null;
+				Log.Write("server", "BeaconLib.Beacon: " + ex.Message);
+			}
 		}
 	}
 }

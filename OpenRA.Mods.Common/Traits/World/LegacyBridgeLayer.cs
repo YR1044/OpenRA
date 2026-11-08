@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,28 +10,28 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Terrain;
-using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[TraitLocation(SystemActors.World)]
-	class LegacyBridgeLayerInfo : TraitInfo
+	public class LegacyBridgeLayerInfo : TraitInfo
 	{
 		[ActorReference]
-		public readonly string[] Bridges = { "bridge1", "bridge2" };
+		public readonly ImmutableArray<string> Bridges = ["bridge1", "bridge2"];
 
 		public override object Create(ActorInitializer init) { return new LegacyBridgeLayer(init.Self, this); }
 	}
 
-	class LegacyBridgeLayer : IWorldLoaded
+	public class LegacyBridgeLayer : IWorldLoaded
 	{
 		readonly LegacyBridgeLayerInfo info;
-		readonly Dictionary<ushort, (string Template, int Health)> bridgeTypes = new Dictionary<ushort, (string, int)>();
+		readonly Dictionary<ushort, (string Template, int Health)> bridgeTypes = [];
 		readonly ITemplatedTerrainInfo terrainInfo;
 
 		CellLayer<Bridge> bridges;
@@ -48,7 +48,7 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			bridges = new CellLayer<Bridge>(w.Map);
 
-			// Build a list of templates that should be overlayed with bridges
+			// Build a list of templates that should be overlaid with bridges
 			foreach (var bridge in info.Bridges)
 			{
 				var bi = w.Map.Rules.Actors[bridge].TraitInfo<BridgeInfo>();
@@ -62,7 +62,7 @@ namespace OpenRA.Mods.Common.Traits
 
 			// Link adjacent (long)-bridges so that artwork is updated correctly
 			foreach (var p in w.ActorsWithTrait<Bridge>())
-				p.Trait.LinkNeighbouringBridges(w, this);
+				p.Trait.LinkNeighbouringBridges(this);
 		}
 
 		void ConvertBridgeToActor(World w, CPos cell)
@@ -80,12 +80,12 @@ namespace OpenRA.Mods.Common.Traits
 			var nj = cell.Y - index / template.Size.X;
 
 			// Create a new actor for this bridge and keep track of which subtiles this bridge includes
-			var bridge = w.CreateActor(bridgeTypes[tile].Template, new TypeDictionary
-			{
+			var bridge = w.CreateActor(bridgeTypes[tile].Template,
+			[
 				new LocationInit(new CPos(ni, nj)),
 				new OwnerInit(w.WorldActor.Owner),
 				new HealthInit(bridgeTypes[tile].Health, true),
-			}).Trait<Bridge>();
+			]).Trait<Bridge>();
 
 			var subTiles = new Dictionary<CPos, byte>();
 			var mapTiles = w.Map.Tiles;

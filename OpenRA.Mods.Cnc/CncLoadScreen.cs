@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,8 @@
  */
 #endregion
 
-using System.Collections.Generic;
+using System.Numerics;
+using OpenRA.FileSystem;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.LoadScreens;
 using OpenRA.Mods.Common.Widgets;
@@ -19,11 +20,14 @@ namespace OpenRA.Mods.Cnc
 {
 	public sealed class CncLoadScreen : SheetLoadScreen
 	{
+		[FluentReference]
+		const string Loading = "loadscreen-loading";
+
 		int loadTick;
 
 		Sprite nodLogo, gdiLogo, evaLogo, brightBlock, dimBlock;
 		Sprite[] border;
-		float2 nodPos, gdiPos, evaPos;
+		Vector3 nodPos, gdiPos, evaPos;
 		Rectangle bounds;
 		string versionText;
 
@@ -31,11 +35,15 @@ namespace OpenRA.Mods.Cnc
 		int lastDensity;
 		Size lastResolution;
 
-		public override void Init(ModData modData, Dictionary<string, string> info)
-		{
-			base.Init(modData, info);
+		string message = "";
 
-			versionText = modData.Manifest.Metadata.Version;
+		public override void Init(Manifest manifest, IReadOnlyFileSystem fileSystem)
+		{
+			base.Init(manifest, fileSystem);
+
+			versionText = manifest.Metadata.Version;
+
+			message = FluentProvider.GetMessage(Loading);
 		}
 
 		public override void DisplayInner(Renderer r, Sheet s, int density)
@@ -45,8 +53,8 @@ namespace OpenRA.Mods.Cnc
 				lastSheet = s;
 				lastDensity = density;
 
-				border = new[]
-				{
+				border =
+				[
 					CreateSprite(s, density, new Rectangle(129, 129, 32, 32)),
 					CreateSprite(s, density, new Rectangle(161, 129, 62, 32)),
 					CreateSprite(s, density, new Rectangle(223, 129, 32, 32)),
@@ -56,7 +64,7 @@ namespace OpenRA.Mods.Cnc
 					CreateSprite(s, density, new Rectangle(129, 223, 32, 32)),
 					CreateSprite(s, density, new Rectangle(161, 223, 62, 32)),
 					CreateSprite(s, density, new Rectangle(223, 223, 32, 32))
-				};
+				];
 
 				nodLogo = CreateSprite(s, density, new Rectangle(0, 256, 256, 256));
 				gdiLogo = CreateSprite(s, density, new Rectangle(256, 256, 256, 256));
@@ -71,9 +79,9 @@ namespace OpenRA.Mods.Cnc
 				lastResolution = r.Resolution;
 
 				bounds = new Rectangle(0, 0, lastResolution.Width, lastResolution.Height);
-				nodPos = new float2(bounds.Width / 2 - 384, bounds.Height / 2 - 128);
-				gdiPos = new float2(bounds.Width / 2 + 128, bounds.Height / 2 - 128);
-				evaPos = new float2(bounds.Width - 43 - 128, 43);
+				nodPos = new Vector3(bounds.Width / 2 - 384, bounds.Height / 2 - 128, 0);
+				gdiPos = new Vector3(bounds.Width / 2 + 128, bounds.Height / 2 - 128, 0);
+				evaPos = new Vector3(bounds.Width - 43 - 128, 43, 0);
 			}
 
 			var barY = bounds.Height - 78;
@@ -89,13 +97,13 @@ namespace OpenRA.Mods.Cnc
 			if (r.Fonts != null)
 			{
 				var loadingFont = r.Fonts["BigBold"];
-				var loadingText = Info["Text"];
-				var loadingPos = new float2((bounds.Width - loadingFont.Measure(loadingText).X) / 2, barY);
+				var loadingText = message;
+				var loadingPos = new Vector2((bounds.Width - loadingFont.Measure(loadingText).X) / 2, barY);
 				loadingFont.DrawText(loadingText, loadingPos, Color.Gray);
 
 				var versionFont = r.Fonts["Regular"];
 				var versionSize = versionFont.Measure(versionText);
-				var versionPos = new float2(bounds.Width - 107 - versionSize.X / 2, 115 - versionSize.Y / 2);
+				var versionPos = new Vector2(bounds.Width - 107 - versionSize.X / 2, 115 - versionSize.Y / 2);
 				versionFont.DrawTextWithContrast(versionText, versionPos, Color.White, Color.Black, 2);
 			}
 
@@ -103,9 +111,9 @@ namespace OpenRA.Mods.Cnc
 			{
 				var block = loadTick == i ? brightBlock : dimBlock;
 				r.RgbaSpriteRenderer.DrawSprite(block,
-					new float2(bounds.Width / 2 - 114 - i * 32, barY));
+					new Vector3(bounds.Width / 2 - 114 - i * 32, barY, 0));
 				r.RgbaSpriteRenderer.DrawSprite(block,
-					new float2(bounds.Width / 2 + 114 + i * 32 - 16, barY));
+					new Vector3(bounds.Width / 2 + 114 + i * 32 - 16, barY, 0));
 			}
 		}
 	}

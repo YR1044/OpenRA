@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,6 +15,8 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[TraitLocation(SystemActors.World)]
+	[IncludeStaticFluentReferences(typeof(ExitsDebugOverlayManager))]
 	public class ExitsDebugOverlayManagerInfo : TraitInfo
 	{
 		[Desc("The font used to draw cell vectors. Should match the value as-is in the Fonts section of the mod manifest (do not convert to lowercase).")]
@@ -26,7 +28,19 @@ namespace OpenRA.Mods.Common.Traits
 	public class ExitsDebugOverlayManager : IWorldLoaded, IChatCommand
 	{
 		const string CommandName = "exits-overlay";
-		const string CommandHelp = "Displays exits for factories.";
+		const string OrderName = "DevExitsOverlay";
+
+		[FluentReference]
+		const string CheatsDisabled = "notification-cheats-disabled";
+
+		[FluentReference]
+		const string CommandDescription = "description-exits-overlay";
+
+		[FluentReference("cheat", "player")]
+		const string CheatEnabled = "notification-cheat-enabled";
+
+		[FluentReference("cheat", "player")]
+		const string CheatDisabled = "notification-cheat-disabled";
 
 		public readonly SpriteFont Font;
 		public readonly ExitsDebugOverlayManagerInfo Info;
@@ -34,6 +48,9 @@ namespace OpenRA.Mods.Common.Traits
 		public bool Enabled;
 
 		readonly Actor self;
+
+		DeveloperMode devMode;
+		World world;
 
 		public ExitsDebugOverlayManager(Actor self, ExitsDebugOverlayManagerInfo info)
 		{
@@ -46,20 +63,36 @@ namespace OpenRA.Mods.Common.Traits
 
 		void IWorldLoaded.WorldLoaded(World w, WorldRenderer wr)
 		{
+			world = w;
 			var console = self.TraitOrDefault<ChatCommands>();
 			var help = self.TraitOrDefault<HelpCommand>();
+			devMode = self.TraitOrDefault<DeveloperMode>();
 
-			if (console == null || help == null)
+			if (console == null || help == null || devMode == null)
 				return;
 
 			console.RegisterCommand(CommandName, this);
-			help.RegisterHelp(CommandName, CommandHelp);
+			help.RegisterHelp(CommandName, CommandDescription);
 		}
 
 		void IChatCommand.InvokeCommand(string command, string arg)
 		{
-			if (command == CommandName)
-				Enabled ^= true;
+			if (command != CommandName)
+				return;
+
+			if (devMode == null || !devMode.Enabled)
+			{
+				TextNotificationsManager.Debug(FluentProvider.GetMessage(CheatsDisabled));
+				return;
+			}
+
+			Enabled ^= true;
+
+			var notification = Enabled ? CheatEnabled : CheatDisabled;
+			var playerName = world.LocalPlayer != null ? world.LocalPlayer.ResolvedPlayerName : "";
+			TextNotificationsManager.Debug(FluentProvider.GetMessage(notification,
+				"cheat", OrderName,
+				"player", playerName));
 		}
 	}
 }

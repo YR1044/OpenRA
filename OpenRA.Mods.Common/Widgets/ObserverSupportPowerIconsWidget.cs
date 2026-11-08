@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2021 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Primitives;
@@ -41,8 +42,8 @@ namespace OpenRA.Mods.Common.Widgets
 		public string ClockPalette = "chrome";
 		public Func<Player> GetPlayer;
 
-		readonly List<SupportPowersWidget.SupportPowerIcon> supportPowerIconsIcons = new List<SupportPowersWidget.SupportPowerIcon>();
-		readonly List<Rectangle> supportPowerIconsBounds = new List<Rectangle>();
+		readonly List<SupportPowersWidget.SupportPowerIcon> supportPowerIconsIcons = [];
+		readonly List<Rectangle> supportPowerIconsBounds = [];
 		Animation icon;
 		int lastIconIdx;
 		int currentTooltipToken;
@@ -52,7 +53,7 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			this.world = world;
 			this.worldRenderer = worldRenderer;
-			clocks = new Dictionary<string, Animation>();
+			clocks = [];
 
 			tooltipContainer = Exts.Lazy(() =>
 				Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
@@ -106,11 +107,11 @@ namespace OpenRA.Mods.Common.Widgets
 					clocks.Add(power.a.Key, new Animation(world, ClockAnimation));
 			}
 
-			Bounds.Width = powers.Count() * (IconWidth + IconSpacing);
+			Bounds.Width = powers.Count * (IconWidth + IconSpacing);
 
 			Game.Renderer.EnableAntialiasingFilter();
 
-			var iconSize = new float2(IconWidth, IconHeight);
+			var iconSize = new Vector2(IconWidth, IconHeight);
 			foreach (var power in powers)
 			{
 				var item = power.a.Value;
@@ -119,7 +120,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 				icon = new Animation(worldRenderer.World, item.Info.IconImage);
 				icon.Play(item.Info.Icon);
-				var location = new float2(RenderBounds.Location) + new float2(power.i * (IconWidth + IconSpacing), 0);
+				var location = RenderBounds.Location.ToVector2() + new Vector2(power.i * (IconWidth + IconSpacing), 0);
 
 				supportPowerIconsIcons.Add(new SupportPowersWidget.SupportPowerIcon { Power = item, Pos = location });
 				supportPowerIconsBounds.Add(new Rectangle((int)location.X, (int)location.Y, (int)iconSize.X, (int)iconSize.Y));
@@ -141,7 +142,7 @@ namespace OpenRA.Mods.Common.Widgets
 			{
 				var text = GetOverlayForItem(icon.Power, world.Timestep);
 				tiny.DrawTextWithContrast(text,
-					icon.Pos + new float2(16, 12) - new float2(tiny.Measure(text).X / 2, 0),
+					icon.Pos + new Vector2(16, 12) - new Vector2(tiny.Measure(text).X / 2, 0),
 					Color.White, Color.Black, 1);
 			}
 		}
@@ -153,7 +154,7 @@ namespace OpenRA.Mods.Common.Widgets
 			return WidgetUtils.FormatTime(item.RemainingTicks, timestep);
 		}
 
-		public override Widget Clone()
+		public override ObserverSupportPowerIconsWidget Clone()
 		{
 			return new ObserverSupportPowerIconsWidget(this);
 		}
@@ -175,7 +176,10 @@ namespace OpenRA.Mods.Common.Widgets
 				return;
 			}
 
-			if (TooltipIcon != null && lastIconIdx < supportPowerIconsBounds.Count && supportPowerIconsIcons[lastIconIdx].Power == TooltipIcon.Power && supportPowerIconsBounds[lastIconIdx].Contains(Viewport.LastMousePos))
+			if (TooltipIcon != null &&
+				lastIconIdx < supportPowerIconsBounds.Count &&
+				supportPowerIconsIcons[lastIconIdx].Power == TooltipIcon.Power &&
+				supportPowerIconsBounds[lastIconIdx].Contains(Viewport.LastMousePos))
 				return;
 
 			for (var i = 0; i < supportPowerIconsBounds.Count; i++)
